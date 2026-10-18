@@ -1,0 +1,16 @@
+.venv/
+build/
+dist/
+var/
+__pycache__/
+*.pyc
+.pyinstaller-cache/
+*.spec
+.DS_Store
+*.zip
+*.log
+*.db
+*.csv
+*.xlsx
+
+assets/icon.iconset/

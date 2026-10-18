@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>糊涂账</title>
+<link rel="icon" type="image/png" href="/static/icon-128.png">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="brand-mark" src="/static/icon-128.png" alt="糊涂账">
+      <div class="brand-text">
+        <strong>糊涂账</strong>
+        <span>把报销从消费里摘出去</span>
+      </div>
+    </div>
+    <nav class="nav" id="nav">
+      <a href="#/overview" data-view="overview">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg>
+        概览
+      </a>
+      <a href="#/stats" data-view="stats">
+        <svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-7M2 20h20"/></svg>
+        统计
+      </a>
+      <a href="#/ledger" data-view="ledger">
+        <svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="3.5" cy="6" r="1.5"/><circle cx="3.5" cy="12" r="1.5"/><circle cx="3.5" cy="18" r="1.5"/></svg>
+        流水
+      </a>
+      <a href="#/assets" data-view="assets">
+        <svg viewBox="0 0 24 24"><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/><path d="M3 8V6a2 2 0 0 1 2-2h12l2 4"/><circle cx="16.5" cy="14" r="1.5"/></svg>
+        资产
+      </a>
+      <a href="#/budget" data-view="budget">
+        <svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9V3z"/><path d="M15 3.6A9 9 0 0 1 20.4 9H15V3.6z"/></svg>
+        预算
+      </a>
+      <a href="#/import" data-view="import">
+        <svg viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+        导入
+      </a>
+      <a href="#/settings" data-view="settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        设置
+      </a>
+    </nav>
+    <div class="sidebar-foot">
+      <div class="local-dot"></div>
+      <div>
+        <strong>数据只在本机</strong>
+        <span id="side-count">—</span>
+      </div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <header class="topbar">
+      <div class="month-nav" id="month-nav">
+        <button class="icon-btn" id="month-prev" title="上个月">‹</button>
+        <button class="month-label" id="month-label">—</button>
+        <button class="icon-btn" id="month-next" title="下个月">›</button>
+      </div>
+      <div class="top-right">
+        <div class="search-wrap" id="search-wrap">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+          <input id="global-search" type="search" placeholder="搜索备注 / 项目" autocomplete="off">
+        </div>
+        <button class="btn primary" id="btn-add">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          记一笔
+        </button>
+      </div>
+    </header>
+
+    <div class="views">
+      <section class="view" id="view-overview"></section>
+      <section class="view" id="view-stats"></section>
+      <section class="view" id="view-ledger"></section>
+      <section class="view" id="view-assets"></section>
+      <section class="view" id="view-budget"></section>
+      <section class="view" id="view-import"></section>
+      <section class="view" id="view-settings"></section>
+    </div>
+  </main>
+</div>
+
+<div id="modal-root"></div>
+<div id="dialog-root"></div>
+<div id="toast" class="toast"></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
