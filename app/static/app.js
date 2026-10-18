@@ -2101,6 +2101,13 @@
     const over = total.budget_cents > 0 && total.spent_cents > total.budget_cents;
     const color = over ? 'var(--danger)' : pct > 0.8 ? 'var(--work)' : 'var(--accent)';
     const daily = total.daily || {};
+    const allocated = total.allocated_cents || 0;
+    const unallocated = total.unallocated_cents || 0;
+    const allocLine = total.budget_cents
+      ? (unallocated >= 0
+        ? `分类预算合计 ${money(allocated)} · 未分配 ${money(unallocated)}`
+        : `分类预算合计 ${money(allocated)} · <span class="neg">超出总预算 ${money(-unallocated)}</span>`)
+      : (allocated ? `分类预算合计 ${money(allocated)} · 总预算未设置` : '');
     const dailyItems = [];
     if (total.budget_cents && daily.days_in_month) {
       dailyItems.push({ label: '日均预算', cents: daily.budget_cents });
@@ -2149,12 +2156,13 @@
             <div class="budget-daily-hint">
               日均预算 = 总预算 ÷ 当月天数${daily.is_current ? ' · 日均支出 = 已花 ÷ 已过天数 · 今日剩余 = 日均预算 − 今日已花' : ''}
             </div>` : ''}
+          ${allocLine ? `<div class="budget-alloc">${allocLine}</div>` : ''}
         </div>
       </div>
 
       <div class="card">
         <div class="card-head">
-          <div><div class="card-title">分类预算</div><div class="card-sub">${d.items.length} 个分类</div></div>
+          <div><div class="card-title">分类预算</div><div class="card-sub">${d.items.length} 个分类 · 点击查看流水</div></div>
           <button class="btn sm ghost" id="add-budget">+ 添加</button>
         </div>
         <div style="padding:2px 0">
@@ -2175,6 +2183,23 @@
     el.querySelectorAll('[data-budget]').forEach((row) => {
       row.onclick = () => {
         const item = d.items.find((i) => i.category_id === Number(row.dataset.budget));
+        if (!item) return;
+        state.filters.category_id = String(item.category_id);
+        state.filters.usage = 'personal';
+        state.filters.status = '';
+        state.filters.q = '';
+        state.ledgerDate = '';
+        state.ledgerRange = null;
+        state.ledgerContinuous = false;
+        state.ledger.offset = 0;
+        state.monthBeforeSearch = state.month;
+        location.hash = '#/ledger';
+      };
+    });
+    el.querySelectorAll('[data-budget-edit]').forEach((btn) => {
+      btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const item = d.items.find((i) => i.category_id === Number(btn.dataset.budgetEdit));
         if (item) openBudgetModal(item.category_id, item.name, item.budget_cents);
       };
     });
@@ -2195,6 +2220,7 @@
         <span class="icon" style="background:${hexA(b.color, .13)}">${b.icon}</span>
         <span class="name">${esc(b.name)}</span>
         <span class="amt">${money(b.spent_cents)} <em>/ ${money(b.budget_cents)}</em></span>
+        <button class="icon-btn" data-budget-edit="${b.category_id}" title="编辑预算">✎</button>
       </div>
       <div class="progress"><i style="width:${Math.min(pct, 1) * 100}%;background:${color}"></i></div>
       <div class="budget-meta">${over ? `<span style="color:var(--danger)">超支 ${money(b.spent_cents - b.budget_cents)}</span>` : `剩余 ${money(b.remaining_cents)}`} · ${Math.round(pct * 100)}%</div>

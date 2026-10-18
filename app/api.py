@@ -1095,6 +1095,8 @@ def get_budget(month: str = "", con=Depends(get_con)):
         if total_budget and remaining_days and remaining_cents > 0 else 0
     )
 
+    allocated_cents = sum(i["budget_cents"] for i in items)
+
     budgeted_ids = {i["category_id"] for i in items}
     suggestions = [
         {"category_id": r["category_id"], "name": r["name"], "icon": r["icon"],
@@ -1109,6 +1111,8 @@ def get_budget(month: str = "", con=Depends(get_con)):
             "budget_cents": total_budget,
             "spent_cents": total_spent,
             "remaining_cents": remaining_cents,
+            "allocated_cents": allocated_cents,
+            "unallocated_cents": total_budget - allocated_cents,
             "pct": round(total_spent / total_budget, 4) if total_budget else 0,
             "daily": {
                 "days_in_month": days_in_month,

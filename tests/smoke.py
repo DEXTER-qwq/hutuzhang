@@ -368,11 +368,14 @@ def main():
         check(b["total"]["spent_cents"] == 10000, "budget excludes work & flagged", b["total"]["spent_cents"])
         check(len(b["items"]) == 1 and b["items"][0]["spent_cents"] == 10000, "category spend", b["items"])
         check(abs(b["items"][0]["pct"] - 1 / 3) < 0.01, "budget pct", b["items"][0]["pct"])
+        check(b["total"]["allocated_cents"] == 30000 and b["total"]["unallocated_cents"] == 70000,
+              "category budgets allocated", b["total"])
 
         code, _ = req("PUT", "/api/budgets", {"category_id": food["id"], "amount": 0})
         code, b = req("GET", "/api/budget?month=2025-01")
         check(len(b["items"]) == 0, "delete category budget")
         check(b["total"]["budget_cents"] == 100000, "total budget kept")
+        check(b["total"]["allocated_cents"] == 0, "allocation cleared")
 
         print("\n[wechat import]")
         wx_rows = [
