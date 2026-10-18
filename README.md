@@ -1,10 +1,24 @@
-# 糊涂账
+<div align="center">
 
-<img src="assets/icon-1024.png" width="96" alt="糊涂账图标">
+<img src="assets/icon-1024.png" width="112" alt="糊涂账图标">
+
+# 糊涂账
 
 一个本地记账小工具，只解决一件事：**把报销的账目从日常消费里摘出去**。
 
-![概览](assets/screenshot-overview.png)
+<p>
+  <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="License" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square">
+</p>
+
+[功能](#功能) · [下载 / 运行](#下载--运行) · [演示数据](#演示数据) · [打包](#打包)
+
+</div>
+
+<p align="center">
+  <img src="assets/screenshot-overview.png" alt="概览">
+</p>
 
 > 截图使用合成数据，不包含任何真实账目；生成方式见 [演示数据](#演示数据)。
 
