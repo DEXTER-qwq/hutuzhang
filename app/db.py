@@ -126,6 +126,7 @@ CREATE TABLE IF NOT EXISTS entries (
     exclude_daily  INTEGER NOT NULL DEFAULT 0,
     exclude_budget INTEGER NOT NULL DEFAULT 0,
     source         TEXT    NOT NULL DEFAULT 'manual',
+    import_batch   TEXT,
     external_id    TEXT,
     created_at     TEXT    NOT NULL,
     updated_at     TEXT    NOT NULL
@@ -164,6 +165,30 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS import_batches (
+    id             TEXT PRIMARY KEY,
+    source         TEXT NOT NULL DEFAULT '',
+    filename       TEXT NOT NULL DEFAULT '',
+    imported       INTEGER NOT NULL DEFAULT 0,
+    skipped        INTEGER NOT NULL DEFAULT 0,
+    refunds        INTEGER NOT NULL DEFAULT 0,
+    refunded_cents INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS import_refunds (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_id     TEXT NOT NULL,
+    entry_id     INTEGER NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    old_note     TEXT NOT NULL DEFAULT '',
+    external_id  TEXT UNIQUE,
+    created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_import_refunds_batch ON import_refunds(batch_id);
+CREATE INDEX IF NOT EXISTS idx_import_refunds_entry ON import_refunds(entry_id);
 """
 
 # (parent, [(child, icon), ...], color)
@@ -234,6 +259,14 @@ def _migrate(con: sqlite3.Connection) -> None:
     ecols = {r["name"] for r in con.execute("PRAGMA table_info(entries)")}
     if "exclude_daily" not in ecols:
         con.execute("ALTER TABLE entries ADD COLUMN exclude_daily INTEGER NOT NULL DEFAULT 0")
+    if "import_batch" not in ecols:
+        con.execute("ALTER TABLE entries ADD COLUMN import_batch TEXT")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_entries_batch ON entries(import_batch)")
+    bcols = {r["name"] for r in con.execute("PRAGMA table_info(import_batches)")}
+    if "refunds" not in bcols:
+        con.execute("ALTER TABLE import_batches ADD COLUMN refunds INTEGER NOT NULL DEFAULT 0")
+    if "refunded_cents" not in bcols:
+        con.execute("ALTER TABLE import_batches ADD COLUMN refunded_cents INTEGER NOT NULL DEFAULT 0")
 
 
 def init_db() -> None:

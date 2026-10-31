@@ -91,16 +91,22 @@ def save(con, cfg) -> dict:
     return cfg
 
 
+TRAIN_WORDS = ("高铁", "动车", "火车", "铁路", "12306")
+
+
 def match(parent: str, child: str, text: str, cfg: dict | None = None) -> str | None:
     """Return a short reason when an expense should default to work."""
     cfg = normalize(cfg) if cfg else defaults()
     work = cfg["work"]
     body = " ".join([text or "", parent or "", child or ""])
-    if any(word in body for word in work["exclude"]):
-        return None
+    # 地铁/公交只用来排除「火车类」误判，不能因此把酒店、打车也排除掉。
+    local_transit = any(word in body for word in work["exclude"])
     for word in work["keywords"]:
-        if word in body:
-            return word
+        if word not in body:
+            continue
+        if local_transit and any(t in word for t in TRAIN_WORDS):
+            continue
+        return word
     return None
 
 

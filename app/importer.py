@@ -6,7 +6,8 @@ import csv
 import hashlib
 import io
 import re
-from datetime import datetime
+import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from openpyxl import load_workbook
@@ -130,6 +131,109 @@ def _refine_category(alipay_cat: str, party: str, item: str) -> str:
         if any(w in text for w in words):
             return parent
     return ALIPAY_CATEGORY_MAP.get(alipay_cat, "其他")
+
+
+# 一级分类确定后，再按商户 / 商品 / 时间落到软件内的二级分类
+CHILD_RULES = {
+    "食品餐饮": [
+        ("外卖", ("美团外卖", "饿了么", "外卖", "美团", "饿了么")),
+        ("饮料酒水", ("咖啡", "奶茶", "饮料", "酒水", "星巴克", "瑞幸", "蜜雪", "喜茶",
+                      "茶百道", "奈雪", "可乐", "矿泉水", "茶饮")),
+        ("休闲零食", ("零食", "良品铺子", "三只松鼠", "百草味", "来伊份", "坚果")),
+        ("生鲜食品", ("生鲜", "菜市场", "买菜", "水果", "盒马", "超市", "山姆")),
+        ("早餐", ("早餐", "包子", "豆浆", "油条", "煎饼", "粥")),
+        ("午餐", ("午餐", "午饭", "中饭")),
+        ("晚餐", ("晚餐", "晚饭")),
+        ("粮油调味", ("粮油", "调味", "大米", "食用油")),
+        ("请客吃饭", ("请客", "聚餐", "宴请")),
+    ],
+    "出行交通": [
+        ("打车", ("滴滴", "打车", "出租车", "网约车", "花小猪", "曹操", "T3", "高德打车",
+                  "首汽", "礼橙", "阳光出行")),
+        ("火车", ("铁路", "12306", "高铁", "动车", "火车")),
+        ("飞机", ("航空", "机票", "航班", "飞机")),
+        ("加油停车", ("加油", "停车", "高速", "ETC", "洗车")),
+        ("公共交通", ("地铁", "公交", "轨道交通", "巴士", "单车", "骑行", "哈啰")),
+    ],
+    "购物消费": [
+        ("手机数码", ("数码", "电器", "手机", "电脑", "相机", "耳机", "小米", "苹果", "华为")),
+        ("虚拟充值", ("充值", "会员", "游戏", "点卡", "Steam", "视频会员")),
+        ("服饰鞋包", ("服饰", "服装", "鞋", "包", "优衣库", "衣服", "裤", "帽")),
+        ("美妆护肤", ("美妆", "护肤", "化妆", "面膜", "口红", "香水")),
+        ("办公用品", ("办公", "文具", "打印")),
+        ("装修装饰", ("装修", "装饰", "建材")),
+        ("日常家居", ("家居", "日用家居", "宜家")),
+        ("日用百货", ("超市", "便利店", "日用", "百货", "盒马", "山姆", "淘宝", "天猫",
+                      "京东", "拼多多", "商城", "旗舰店")),
+    ],
+    "居家生活": [
+        ("房租", ("房租", "租金")),
+        ("房租还贷", ("还贷", "房贷", "月供")),
+        ("水电燃气", ("电费", "水费", "燃气", "水电", "电力", "水务", "燃气费")),
+        ("话费宽带", ("话费", "宽带", "流量", "手机充值", "通讯")),
+        ("物业", ("物业",)),
+        ("家政维修", ("家政", "保洁", "维修", "清洁")),
+        ("家具家电", ("家具", "家电", "空调", "冰箱", "洗衣机")),
+    ],
+    "休闲娱乐": [
+        ("电影演出", ("电影", "影城", "影院", "演出", "演唱会", "话剧")),
+        ("旅游度假", ("酒店", "民宿", "旅游", "门票", "景区", "度假", "旅行", "携程", "飞猪")),
+        ("运动健身", ("健身", "球馆", "运动", "游泳", "瑜伽")),
+        ("游戏", ("游戏", "Steam", "网吧", "点卡")),
+        ("棋牌桌游", ("棋牌", "桌游", "麻将", "剧本杀")),
+        ("聚会", ("聚会", "KTV", "酒吧", "夜店")),
+    ],
+    "健康医疗": [
+        ("药品", ("药房", "药店", "药品", "买药", "大药房")),
+        ("门诊", ("门诊", "诊所", "挂号", "医院")),
+        ("体检", ("体检", "检查")),
+        ("保险", ("保险", "医保")),
+    ],
+    "文化教育": [
+        ("书籍", ("书店", "图书", "书", "杂志")),
+        ("课程", ("课程", "培训", "教育", "网课")),
+        ("考试", ("考试", "报名", "考证")),
+    ],
+    "送礼人情": [
+        ("礼物", ("礼物", "礼品")),
+        ("红包", ("红包", "转账", "礼金", "份子")),
+        ("请客", ("请客", "宴请")),
+    ],
+}
+
+INCOME_CHILD_RULES = [
+    ("工资", ("工资", "薪资", "薪酬", "代发")),
+    ("奖金", ("奖金", "年终奖", "绩效")),
+    ("报销回款", ("报销",)),
+    ("兼职", ("兼职", "劳务")),
+    ("理财", ("理财", "收益", "利息", "基金", "股票")),
+    ("礼金人情", ("礼金", "红包", "份子", "转账")),
+    ("二手闲置", ("闲鱼", "二手")),
+]
+
+
+def _category_child(parent: str, text: str, occurred: str = "", source_cat: str = "") -> str:
+    body = f"{source_cat} {text}"
+    if parent == "收入":
+        for child, words in INCOME_CHILD_RULES:
+            if any(w in body for w in words):
+                return child
+        return "其他"
+    for child, words in CHILD_RULES.get(parent, []):
+        if any(w in body for w in words):
+            return child
+    if parent == "食品餐饮":
+        try:
+            hour = int(occurred[11:13])
+        except (TypeError, ValueError):
+            hour = 0
+        if 5 <= hour < 10:
+            return "早餐"
+        if 10 <= hour < 15:
+            return "午餐"
+        if 15 <= hour < 23:
+            return "晚餐"
+    return ""
 
 
 def _map_account(method: str) -> str:
@@ -257,11 +361,13 @@ def _parse_alipay(raw: list[tuple], header_idx: int):
         else:
             parent = _refine_category(alipay_cat, party, item)
             kind = "expense"
+        child = _category_child(parent, f"{party} {item}", occurred, alipay_cat)
         remark = _norm(rec.get("备注"))
         note = " · ".join([p for p in (party, item) if p])
         if remark:
             note = (note + f"（{remark}）").strip()
-        if status.startswith("退款"):
+        is_refund = "退款" in status or (flow == "不计收支" and "退款" in item)
+        if is_refund:
             note = "退款 · " + note
         if len(note) > 80:
             note = note[:79] + "…"
@@ -271,11 +377,14 @@ def _parse_alipay(raw: list[tuple], header_idx: int):
             "收支类型": "收入" if kind == "income" else "支出",
             "金额": f"{cents / 100:.2f}",
             "类别": parent,
-            "子类": "",
+            "子类": child,
             "账户": _map_account(rec.get("收/付款方式")),
             "备注": note,
             "其他": "不计入收支" if flow == "不计收支" else "",
             "退款金额": "",
+            "_refund": is_refund,
+            "_refund_party": party,
+            "_refund_item": item,
             "_alipay_category": alipay_cat,
             "_key": "|".join([occurred, str(cents), party, item, flow]),
         })
@@ -324,11 +433,13 @@ def _parse_wechat(raw: list[tuple], header_idx: int):
             parent, kind = "收入", "income"
         else:
             parent, kind = _wechat_category(party, item, trade_type), "expense"
+        child = _category_child(parent, f"{party} {item}", occurred, trade_type)
 
         note = " · ".join([p for p in (party, item) if p])
         if remark:
             note = (note + f"（{remark}）").strip()
-        if "退款" in status:
+        is_refund = "退款" in status or "退款" in trade_type
+        if is_refund:
             note = "退款 · " + note
         if len(note) > 80:
             note = note[:79] + "…"
@@ -341,11 +452,14 @@ def _parse_wechat(raw: list[tuple], header_idx: int):
             "收支类型": "收入" if kind == "income" else "支出",
             "金额": f"{cents / 100:.2f}",
             "类别": parent,
-            "子类": "",
+            "子类": child,
             "账户": _map_wechat_account(_norm(rec.get("支付方式"))),
             "备注": note,
             "其他": "不计入收支" if flow == "不计收支" else "",
             "退款金额": "",
+            "_refund": is_refund,
+            "_refund_party": party,
+            "_refund_item": item,
             "_wechat_type": trade_type,
             "_key": key_seed,
         })
@@ -446,8 +560,9 @@ def _auto_work(r: dict, cfg: dict | None = None) -> bool:
 
 def preview(rows: list[dict], meta: dict | None = None, cfg: dict | None = None) -> dict:
     meta = meta or {}
-    expenses = [r for r in rows if _norm(r.get("收支类型")) != "收入"]
-    incomes = [r for r in rows if _norm(r.get("收支类型")) == "收入"]
+    refund_rows = [r for r in rows if r.get("_refund")]
+    expenses = [r for r in rows if not r.get("_refund") and _norm(r.get("收支类型")) != "收入"]
+    incomes = [r for r in rows if not r.get("_refund") and _norm(r.get("收支类型")) == "收入"]
     dates = [_norm_time(r.get("日期")) for r in rows]
     dates = [d for d in dates if d]
     parents = sorted({(_norm(r.get("类别")) or "其他") for r in rows})
@@ -455,9 +570,10 @@ def preview(rows: list[dict], meta: dict | None = None, cfg: dict | None = None)
     accs = sorted({_norm(r.get("账户")) for r in rows if _norm(r.get("账户"))})
     others = [_norm(r.get("其他")) for r in rows]
     refunds = sum(1 for r in rows if _to_cents(r.get("退款金额")))
+    refund_cents = sum(_to_cents(r.get("金额")) for r in refund_rows)
     excluded = sum(1 for o in others if "不计入收支" in o)
-    auto_work = sum(1 for r in rows if _auto_work(r, cfg))
-    fixed = sum(1 for r in rows if _is_fixed_expense(r, cfg))
+    auto_work = sum(1 for r in expenses if _auto_work(r, cfg))
+    fixed = sum(1 for r in expenses if _is_fixed_expense(r, cfg))
     return {
         "total": len(rows),
         "expense_count": len(expenses),
@@ -470,6 +586,8 @@ def preview(rows: list[dict], meta: dict | None = None, cfg: dict | None = None)
         "category_pairs": len(pairs),
         "accounts": accs,
         "refund_count": refunds,
+        "refund_rows": len(refund_rows),
+        "refund_cents": refund_cents,
         "exclude_stats_count": excluded,
         "auto_work_count": auto_work,
         "fixed_count": fixed,
@@ -483,13 +601,19 @@ def preview(rows: list[dict], meta: dict | None = None, cfg: dict | None = None)
 
 # --------------------------------------------------------------------------- import
 
-def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewood") -> dict:
+def import_rows(con, rows: list[dict], mode: str = "merge",
+                source: str = "onewood", filename: str = "") -> dict:
     if mode == "replace":
         con.execute("DELETE FROM entries")
         con.execute("DELETE FROM claims")
+        con.execute("DELETE FROM import_batches")
+        con.execute("DELETE FROM import_refunds")
         con.execute("DELETE FROM sqlite_sequence WHERE name IN ('entries','claims')")
 
     cfg = rules.load(con)
+    batch_id = uuid.uuid4().hex
+    normal_rows = [r for r in rows if not r.get("_refund")]
+    refund_rows = [r for r in rows if r.get("_refund")]
     now = db.now_iso()
     imported = skipped = 0
     seen: dict[str, int] = {}
@@ -497,8 +621,11 @@ def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewo
     auto_work_rows = 0
     excluded_stats = 0
     fixed_rows = 0
+    refunded_count = 0
+    refunded_cents = 0
+    unmatched_refunds = 0
 
-    for r in rows:
+    for r in normal_rows:
         occurred = _norm_time(r.get("日期"))
         cents = _to_cents(r.get("金额"))
         if not occurred or cents <= 0:
@@ -513,12 +640,14 @@ def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewo
             kind = "income"
         if kind == "income":
             parent_name = "收入"
-
         note = _norm(r.get("备注"))
         other = _norm(r.get("其他"))
         refund = _to_cents(r.get("退款金额"))
         if refund:
             note = (note + f"（退款 {refund / 100:.2f}）").strip()
+        if not child_name:
+            source_cat = _norm(r.get("_alipay_category") or r.get("_wechat_type"))
+            child_name = _category_child(parent_name, note, _norm(r.get("日期")), source_cat)
 
         category_id = _ensure_category(con, parent_name, child_name)
         account_id = _ensure_account(con, r.get("账户"))
@@ -556,8 +685,9 @@ def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewo
             """INSERT OR IGNORE INTO entries
                (kind, occurred_at, amount_cents, category_id, account_id, note, usage,
                 claim_id, project, invoice, invoice_no, refund_cents, exclude_stats,
-                exclude_daily, exclude_budget, source, external_id, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 'none', '', ?, ?, ?, ?, ?, ?, ?, ?)""",
+                exclude_daily, exclude_budget, import_batch, source, external_id,
+                created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, '', 'none', '', ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 kind,
                 occurred,
@@ -571,6 +701,7 @@ def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewo
                 exclude_stats,
                 exclude_daily,
                 exclude_budget,
+                batch_id,
                 source,
                 external_id,
                 now,
@@ -582,9 +713,104 @@ def import_rows(con, rows: list[dict], mode: str = "merge", source: str = "onewo
         else:
             skipped += 1
 
+    income_cat = con.execute(
+        "SELECT id FROM categories WHERE parent_id IS NULL AND name='收入'"
+    ).fetchone()
+
+    for r in refund_rows:
+        occurred = _norm_time(r.get("日期"))
+        amount = _to_cents(r.get("金额"))
+        if not occurred or amount <= 0:
+            skipped += 1
+            continue
+        when = date.fromisoformat(occurred[:10])
+        account_id = _ensure_account(con, r.get("账户"))
+        party = _norm(r.get("_refund_party"))
+        item = _norm(r.get("_refund_item"))
+        seed = r.get("_key") or f"refund|{occurred}|{amount}|{party}|{item}"
+        ext = "refund:" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:24]
+        if con.execute("SELECT 1 FROM import_refunds WHERE external_id=?", (ext,)).fetchone():
+            skipped += 1
+            continue
+
+        tokens = re.findall(r"[A-Za-z0-9]{6,}", item)
+        candidates = con.execute(
+            """SELECT id, amount_cents, refund_cents, note, occurred_at
+               FROM entries
+               WHERE kind='expense' AND account_id=? AND occurred_at>=? AND occurred_at<?
+                 AND amount_cents > refund_cents
+               ORDER BY occurred_at DESC""",
+            (account_id, (when - timedelta(days=366)).isoformat(),
+             (when + timedelta(days=1)).isoformat()),
+        ).fetchall()
+        best, best_score = None, 0
+        for c in candidates:
+            note = c["note"] or ""
+            score = 0
+            if party and party in note:
+                score += 3
+            if any(tok in note for tok in tokens):
+                score += 5
+            if c["amount_cents"] - c["refund_cents"] == amount:
+                score += 2
+            if score > best_score:
+                best, best_score = c, score
+        take = 0
+        if best and best_score >= 3:
+            remaining = best["amount_cents"] - best["refund_cents"]
+            take = min(amount, remaining)
+            if take > 0:
+                old_note = best["note"] or ""
+                new_note = old_note
+                if "已退款" not in new_note:
+                    new_note = (new_note + f"（已退款 {take / 100:.2f}）")[:220]
+                con.execute(
+                    """UPDATE entries SET amount_cents=amount_cents-?, refund_cents=refund_cents+?,
+                       note=?, updated_at=? WHERE id=?""",
+                    (take, take, new_note, now, best["id"]),
+                )
+                con.execute(
+                    """INSERT INTO import_refunds(batch_id, entry_id, amount_cents, old_note,
+                       external_id, created_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (batch_id, best["id"], take, old_note, ext, now),
+                )
+                refunded_count += 1
+                refunded_cents += take
+
+        leftover = amount - take
+        if leftover > 0:
+            note = "退款（未匹配原支出） · " + " · ".join(p for p in (party, item) if p)
+            cur = con.execute(
+                """INSERT OR IGNORE INTO entries
+                   (kind, occurred_at, amount_cents, category_id, account_id, note, usage,
+                    claim_id, project, invoice, invoice_no, refund_cents, exclude_stats,
+                    exclude_daily, exclude_budget, import_batch, source, external_id,
+                    created_at, updated_at)
+                   VALUES ('income', ?, ?, ?, ?, ?, 'personal', NULL, '', 'none', '', 0,
+                           1, 1, 1, ?, ?, ?, ?, ?)""",
+                (occurred, leftover, income_cat["id"] if income_cat else None,
+                 account_id, note[:220], batch_id, source, "refund-unmatched:" + ext[7:], now, now),
+            )
+            if cur.rowcount:
+                imported += 1
+                unmatched_refunds += 1
+
+    if imported or refunded_count or unmatched_refunds:
+        con.execute(
+            """INSERT INTO import_batches(id, source, filename, imported, skipped, refunds,
+               refunded_cents, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (batch_id, source, filename[:240], imported, skipped, refunded_count,
+             refunded_cents, now),
+        )
+    else:
+        batch_id = None
     con.commit()
     return {
         "imported": imported,
+        "batch_id": batch_id,
+        "refunds": refunded_count,
+        "refunded_cents": refunded_cents,
+        "unmatched_refunds": unmatched_refunds,
         "skipped": skipped,
         "excluded_stats": excluded_stats,
         "fixed_rows": fixed_rows,

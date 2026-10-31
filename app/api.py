@@ -1199,7 +1199,7 @@ async def import_file(
         parsed = importer.parse_file(data, filename)
     except ValueError as exc:
         raise HTTPException(422, str(exc))
-    return importer.import_rows(con, parsed["rows"], mode, parsed["source"])
+    return importer.import_rows(con, parsed["rows"], mode, parsed["source"], filename=filename)
 
 
 class PathPreviewBody(BaseModel):
@@ -1272,7 +1272,44 @@ def import_path(body: PathImportBody, con=Depends(get_con)):
         parsed = importer.parse_file(data, p)
     except (OSError, ValueError) as exc:
         raise HTTPException(422, str(exc))
-    return importer.import_rows(con, parsed["rows"], body.mode, parsed["source"])
+    return importer.import_rows(con, parsed["rows"], body.mode, parsed["source"],
+                                filename=p.split("/")[-1])
+
+
+@router.get("/imports")
+def list_imports(limit: int = Query(default=20, le=100), con=Depends(get_con)):
+    rows = con.execute(
+        """SELECT b.*, (SELECT COUNT(*) FROM entries e WHERE e.import_batch = b.id) AS remaining
+           FROM import_batches b ORDER BY b.created_at DESC LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return {"items": [dict(r) for r in rows]}
+
+
+@router.delete("/imports/{batch_id}")
+def undo_import(batch_id: str, con=Depends(get_con)):
+    row = con.execute("SELECT id FROM import_batches WHERE id=?", (batch_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "导入记录不存在")
+    restored = 0
+    for log in con.execute(
+        "SELECT entry_id, amount_cents, old_note FROM import_refunds WHERE batch_id=?",
+        (batch_id,),
+    ).fetchall():
+        if con.execute("SELECT 1 FROM entries WHERE id=?", (log["entry_id"],)).fetchone():
+            con.execute(
+                """UPDATE entries SET amount_cents=amount_cents+?,
+                   refund_cents=CASE WHEN refund_cents >= ? THEN refund_cents-? ELSE 0 END,
+                   note=?, updated_at=? WHERE id=?""",
+                (log["amount_cents"], log["amount_cents"], log["amount_cents"],
+                 log["old_note"], db.now_iso(), log["entry_id"]),
+            )
+            restored += 1
+    con.execute("DELETE FROM import_refunds WHERE batch_id=?", (batch_id,))
+    cur = con.execute("DELETE FROM entries WHERE import_batch=?", (batch_id,))
+    con.execute("DELETE FROM import_batches WHERE id=?", (batch_id,))
+    con.commit()
+    return {"ok": True, "deleted": cur.rowcount, "restored": restored}
 
 
 @router.post("/import/backup/preview")
@@ -1751,5 +1788,7 @@ def settings(con=Depends(get_con)):
 @router.post("/settings/reset")
 def reset_data(con=Depends(get_con)):
     con.execute("DELETE FROM entries")
+    con.execute("DELETE FROM import_batches")
+    con.execute("DELETE FROM import_refunds")
     con.commit()
     return {"ok": True}

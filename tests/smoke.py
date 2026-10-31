@@ -12,6 +12,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from calendar import monthrange
 from datetime import date as _date
 from pathlib import Path
 from urllib.parse import quote
@@ -221,8 +222,8 @@ def main():
         check(lst["total"] == 1 and lst["items"][0]["note"] == "客户打车", "work filter finds taxi", lst["total"])
 
         print("\n[export]")
-        code, csv = req("GET", "/api/export.csv?month=2026-10")
-        check(code == 200 and "日期" in csv and "客户打车" in csv, "csv export")
+        code, csv_text = req("GET", "/api/export.csv?month=2026-10")
+        check(code == 200 and "日期" in csv_text and "客户打车" in csv_text, "csv export")
 
         code, row = req("PATCH", f"/api/entries/{e3['id']}", {"usage": "personal"})
         check(row["usage"] == "personal", "patch to personal")
@@ -268,10 +269,10 @@ def main():
         check(r["imported"] == 0 and r["skipped"] == 5, "alipay re-import dedupes", r)
 
         code, lst = req("GET", "/api/entries?month=2026-10&q=午饭")
-        check(lst["total"] == 1 and lst["items"][0]["category_label"] == "食品餐饮", "alipay food mapping",
+        check(lst["total"] == 1 and lst["items"][0]["category_label"] == "食品餐饮 · 午餐", "alipay food mapping",
               lst["items"][0]["category_label"] if lst["items"] else None)
         code, lst = req("GET", "/api/entries?month=2026-10&q=美团单车")
-        check(lst["items"][0]["category_label"] == "出行交通", "alipay keyword refine",
+        check(lst["items"][0]["category_label"] == "出行交通 · 公共交通", "alipay keyword refine",
               lst["items"][0]["category_label"] if lst["items"] else None)
         code, lst = req("GET", "/api/entries?month=2026-10&q=打车")
         check(lst["items"][0]["account_name"] == "招商银行", "alipay account mapping",
@@ -284,6 +285,7 @@ def main():
         check(rules.is_work("出行交通", "", "汉庭酒店"), "rule: hotel")
         check(rules.is_work("出行交通", "", "滴滴快车打车"), "rule: taxi")
         check(not rules.is_work("出行交通", "", "某市地铁(某火车站)"), "rule: subway is not travel")
+        check(rules.is_work("休闲娱乐", "", "汉庭酒店(南京小行地铁站店)"), "rule: hotel with metro is travel")
         check(not rules.is_work("食品餐饮", "", "午饭"), "rule: lunch untouched")
         code, hotel = req("POST", "/api/entries", {
             "occurred_at": "2026-10-16 21:00", "amount": 260, "note": "某市出差住宿",
@@ -377,6 +379,37 @@ def main():
         check(b["total"]["budget_cents"] == 100000, "total budget kept")
         check(b["total"]["allocated_cents"] == 0, "allocation cleared")
 
+        print("\n[category child mapping]")
+        map_rows = [
+            ["2026/06/01 09:00", "餐饮美食", "星巴克", "", "咖啡", "支出", "30.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/02 12:00", "餐饮美食", "美团外卖", "", "外卖", "支出", "25.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/03 09:00", "交通出行", "合肥地铁", "", "地铁", "支出", "3.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/04 12:00", "数码电器", "某数码店", "", "手机", "支出", "3000.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/05 12:00", "服饰装扮", "优衣库", "", "衣服", "支出", "200.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/06 12:00", "酒店旅游", "汉庭酒店", "", "住宿", "支出", "400.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/07 12:00", "充值缴费", "合肥水务", "", "水费", "支出", "9.45", "账户余额",
+             "交易成功", "", "", ""],
+        ]
+        code, _ = req("POST", "/api/import?filename=map.csv", raw=alipay_bytes(map_rows))
+        for q, expect in [
+            ("星巴克", "食品餐饮 · 饮料酒水"),
+            ("美团外卖", "食品餐饮 · 外卖"),
+            ("合肥地铁", "出行交通 · 公共交通"),
+            ("某数码店", "购物消费 · 手机数码"),
+            ("优衣库", "购物消费 · 服饰鞋包"),
+            ("汉庭酒店", "休闲娱乐 · 旅游度假"),
+            ("合肥水务", "居家生活 · 水电燃气"),
+        ]:
+            code, found = req("GET", "/api/entries?q=" + q)
+            got = found["items"][0]["category_label"] if found["items"] else None
+            check(got == expect, "category map " + q, got)
+
         print("\n[wechat import]")
         wx_rows = [
             ["2026-10-01 12:00:00", "商户消费", "美团", "外卖", "支出", 35, "零钱",
@@ -405,7 +438,7 @@ def main():
         check(r["imported"] == 0 and r["skipped"] == 4, "wechat re-import dedupes", r)
 
         code, lst = req("GET", "/api/entries?q=美团&date_from=2026-10-01&date_to=2026-10-01")
-        check(lst["items"][0]["category_label"] == "食品餐饮", "wechat food category",
+        check(lst["items"][0]["category_label"] == "食品餐饮 · 外卖", "wechat food category",
               lst["items"][0]["category_label"] if lst["items"] else None)
         code, lst = req("GET", "/api/entries?q=滴滴&date_from=2026-10-02&date_to=2026-10-02")
         check(lst["items"][0]["usage"] == "work", "wechat taxi marked work")
@@ -604,14 +637,94 @@ def main():
         code, bad = req("POST", "/api/import/backup", raw=b"definitely not sqlite")
         check(code == 422, "invalid backup rejected", code)
 
+        print("\n[undo import]")
+        undo_rows = [[
+            "2026-04-02 12:00", "支出", "-12.34", "食品餐饮", "午餐", "银行卡", "日常账本",
+            None, None, None, "撤回测试", None, None, None, None, "undo1", None, None, None, None,
+        ]]
+        undo_data = xlsx_bytes(undo_rows)
+        code, undo_res = req("POST", "/api/import?filename=undo.xlsx", raw=undo_data)
+        check(code == 200 and undo_res.get("batch_id"), "import returns batch id", undo_res)
+        code, hist = req("GET", "/api/imports")
+        record = next((x for x in hist["items"] if x["id"] == undo_res["batch_id"]), None)
+        check(record and record["imported"] == 1 and record["remaining"] == 1,
+              "import history record", record)
+        req("POST", "/api/entries", {
+            "occurred_at": "2026-04-02 13:00", "amount": 5, "category_id": food["id"], "note": "手动保留",
+        })
+        code, undone = req("DELETE", "/api/imports/" + undo_res["batch_id"])
+        check(code == 200 and undone["deleted"] == 1, "undo import deletes batch", undone)
+        code, gone = req("GET", "/api/entries?q=撤回测试")
+        check(len(gone["items"]) == 0, "undone entries removed")
+        code, kept = req("GET", "/api/entries?q=手动保留")
+        check(len(kept["items"]) == 1, "manual entry kept")
+        code, hist2 = req("GET", "/api/imports")
+        check(all(x["id"] != undo_res["batch_id"] for x in hist2["items"]), "batch removed from history")
+
+        print("\n[refund import]")
+        def alipay_csv(rows):
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(["交易时间", "交易分类", "交易对方", "对方账号", "商品说明", "收/支",
+                        "金额", "收/付款方式", "交易状态", "交易订单号", "商家订单号", "备注"])
+            w.writerows(rows)
+            return buf.getvalue().encode("utf-8-sig")
+
+        orig_data = alipay_csv([
+            ["2026-04-01 10:00:00", "数码电器", "南京某数码公司", "/",
+             "【扫码预授权】-641258825618", "支出", "400.00",
+             "招商银行储蓄卡(1234)", "交易成功", "ORDER-1", "", ""],
+        ])
+        code, orig_batch = req("POST", "/api/import?filename=orig.csv", raw=orig_data)
+        check(code == 200 and orig_batch["imported"] == 1, "original expense imported", orig_batch)
+        refund_data = alipay_csv([
+            ["2026-04-02 10:00:00", "退款", "南京某数码公司", "/",
+             "退款-【扫码预授权】-641258825618", "不计收支", "180.00",
+             "招商银行储蓄卡(1234)", "退款成功", "ORDER-2", "", ""],
+        ])
+        code, ref = req("POST", "/api/import?filename=refund.csv", raw=refund_data)
+        check(code == 200 and ref["refunds"] == 1 and ref["imported"] == 0
+              and ref["refunded_cents"] == 18000, "refund matched and applied", ref)
+        code, orig = req("GET", "/api/entries?q=扫码预授权")
+        item = next((x for x in orig["items"] if x["kind"] == "expense"), None)
+        check(item and item["amount_cents"] == 22000 and item["refund_cents"] == 18000
+              and "已退款" in item["note"], "refund reduces original expense", item)
+        code, bud = req("GET", "/api/budget?month=2026-04")
+        check(bud["total"]["spent_cents"] == 22500, "refund nets budget", bud["total"])
+        code, hist = req("GET", "/api/imports")
+        rec = next(x for x in hist["items"] if x["id"] == ref["batch_id"])
+        check(rec["refunds"] == 1 and rec["refunded_cents"] == 18000, "refund in history", rec)
+        code, undone = req("DELETE", "/api/imports/" + ref["batch_id"])
+        check(code == 200 and undone["deleted"] == 0 and undone["restored"] == 1,
+              "undo refund batch", undone)
+        code, orig2 = req("GET", "/api/entries?q=扫码预授权")
+        item2 = next((x for x in orig2["items"] if x["kind"] == "expense"), None)
+        check(item2 and item2["amount_cents"] == 40000 and item2["refund_cents"] == 0,
+              "undo restores original amount", item2)
+
+        unmatched = alipay_csv([
+            ["2026-04-03 10:00:00", "退款", "没有原单的商户", "/",
+             "退款-某订单", "不计收支", "50.00", "招商银行储蓄卡(1234)", "退款成功", "ORDER-3", "", ""],
+        ])
+        code, um = req("POST", "/api/import?filename=unmatched.csv", raw=unmatched)
+        check(code == 200 and um["refunds"] == 0 and um["unmatched_refunds"] == 1,
+              "unmatched refund fallback", um)
+        code, rows = req("GET", "/api/entries?q=未匹配原支出")
+        check(rows["items"] and rows["items"][0]["kind"] == "income"
+              and rows["items"][0]["exclude_stats"] is True, "unmatched refund not expense")
+        req("DELETE", "/api/imports/" + um["batch_id"])
+
         print("\n[daily budget]")
         code, meta_now = req("GET", "/api/meta")
         food_cat = next(c for c in meta_now["categories"] if c["name"] == "食品餐饮" and not c["parent_id"])
         req("PUT", "/api/budgets", {"category_id": None, "amount": 3100})
-        code, b0 = req("GET", "/api/budget?month=2026-10")
+        current_month = _date.today().strftime("%Y-%m")
+        current_days = monthrange(_date.today().year, _date.today().month)[1]
+        code, b0 = req("GET", "/api/budget?month=" + current_month)
         daily0 = b0["total"]["daily"]
-        check(daily0["days_in_month"] == 31, "daily days in month", daily0)
-        check(daily0["budget_cents"] == 10000, "daily budget = total / days", daily0)
+        check(daily0["days_in_month"] == current_days, "daily days in month", daily0)
+        check(daily0["budget_cents"] == round(310000 / current_days),
+              "daily budget = total / days", daily0)
         check(daily0["is_current"] is True, "daily current month")
 
         before_spent = b0["total"]["spent_cents"]
@@ -624,7 +737,7 @@ def main():
         req("POST", "/api/entries", {
             "occurred_at": today + " 13:01", "amount": 10, "note": "日预算无分类",
         })
-        code, b1 = req("GET", "/api/budget?month=2026-10")
+        code, b1 = req("GET", "/api/budget?month=" + current_month)
         daily1 = b1["total"]["daily"]
         check(b1["total"]["spent_cents"] == before_spent + 6000,
               "budget total includes uncategorized", (before_spent, b1["total"]["spent_cents"]))
@@ -666,36 +779,36 @@ def main():
               "rules reset", reset)
 
         print("\n[budget exclusion]")
-        before = req("GET", "/api/budget?month=2026-10")[1]["total"]["spent_cents"]
+        before = req("GET", "/api/budget?month=" + current_month)[1]["total"]["spent_cents"]
         code, big = req("POST", "/api/entries", {
             "occurred_at": today + " 15:00", "amount": 1200,
             "category_id": food_cat["id"], "note": "大额测试",
         })
-        after_add = req("GET", "/api/budget?month=2026-10")[1]["total"]["spent_cents"]
+        after_add = req("GET", "/api/budget?month=" + current_month)[1]["total"]["spent_cents"]
         check(after_add == before + 120000, "large expense counts in budget")
-        nob0 = req("GET", "/api/overview?month=2026-10")[1]["trend"][-1]["nobudget_cents"]
-        ov0 = req("GET", "/api/overview?month=2026-10")[1]
-        st_per0 = req("GET", "/api/stats?period=month&key=2026-10&scope=personal")[1]["summary"]["expense_cents"]
-        st_nb0 = req("GET", "/api/stats?period=month&key=2026-10&scope=nobudget")[1]["summary"]["expense_cents"]
+        nob0 = req("GET", "/api/overview?month=" + current_month)[1]["trend"][-1]["nobudget_cents"]
+        ov0 = req("GET", "/api/overview?month=" + current_month)[1]
+        st_per0 = req("GET", "/api/stats?period=month&key=" + current_month + "&scope=personal")[1]["summary"]["expense_cents"]
+        st_nb0 = req("GET", "/api/stats?period=month&key=" + current_month + "&scope=nobudget")[1]["summary"]["expense_cents"]
         req("POST", "/api/entries/bulk", {"ids": [big["id"]], "exclude_budget": True})
-        excluded = req("GET", "/api/budget?month=2026-10")[1]["total"]["spent_cents"]
+        excluded = req("GET", "/api/budget?month=" + current_month)[1]["total"]["spent_cents"]
         check(excluded == before, "exclude_budget removes from budget", (before, excluded))
-        nob1 = req("GET", "/api/overview?month=2026-10")[1]["trend"][-1]["nobudget_cents"]
+        nob1 = req("GET", "/api/overview?month=" + current_month)[1]["trend"][-1]["nobudget_cents"]
         check(nob1 == nob0 + 120000, "trend splits no-budget", (nob0, nob1))
-        ov1 = req("GET", "/api/overview?month=2026-10")[1]
+        ov1 = req("GET", "/api/overview?month=" + current_month)[1]
         check(ov1["personal_cents"] == ov0["personal_cents"] - 120000
               and ov1["nobudget_cents"] == ov0["nobudget_cents"] + 120000,
               "overview daily excludes no-budget")
-        st_per1 = req("GET", "/api/stats?period=month&key=2026-10&scope=personal")[1]["summary"]["expense_cents"]
-        st_nb1 = req("GET", "/api/stats?period=month&key=2026-10&scope=nobudget")[1]["summary"]["expense_cents"]
+        st_per1 = req("GET", "/api/stats?period=month&key=" + current_month + "&scope=personal")[1]["summary"]["expense_cents"]
+        st_nb1 = req("GET", "/api/stats?period=month&key=" + current_month + "&scope=nobudget")[1]["summary"]["expense_cents"]
         check(st_per1 == st_per0 - 120000, "stats daily excludes no-budget")
         check(st_nb1 == st_nb0 + 120000, "stats no-budget scope")
         code, rows = req("GET", "/api/entries?q=大额测试")
         check(rows["items"][0]["exclude_budget"] is True, "bulk exclude_budget flag")
         req("POST", "/api/entries/bulk", {"ids": [big["id"]], "exclude_budget": False})
-        restored = req("GET", "/api/budget?month=2026-10")[1]["total"]["spent_cents"]
+        restored = req("GET", "/api/budget?month=" + current_month)[1]["total"]["spent_cents"]
         check(restored == after_add, "include budget restores spend")
-        nob2 = req("GET", "/api/overview?month=2026-10")[1]["trend"][-1]["nobudget_cents"]
+        nob2 = req("GET", "/api/overview?month=" + current_month)[1]["trend"][-1]["nobudget_cents"]
         check(nob2 == nob0, "trend no-budget restores")
 
         print(f"\n{passed} passed, {failed} failed")

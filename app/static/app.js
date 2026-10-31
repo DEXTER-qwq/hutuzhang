@@ -121,6 +121,145 @@
   const del = (p) => api(p, { method: 'DELETE' });
   const put = (p, body) => api(p, { method: 'PUT', body });
 
+  /* ---------------------------------------------------------------- custom select */
+
+  let activeSelectMenu = null;
+
+  function closeSelectMenu() {
+    if (!activeSelectMenu) return;
+    const { menu, cleanup } = activeSelectMenu;
+    activeSelectMenu = null;
+    cleanup();
+    menu.remove();
+  }
+
+  function openSelectMenu(sel, btn) {
+    closeSelectMenu();
+    const menu = document.createElement('div');
+    menu.className = 'select-menu';
+    let lastGroup = '';
+
+    const addOption = (opt) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'select-opt' + (opt.selected ? ' sel' : '');
+      row.disabled = opt.disabled;
+      const check = document.createElement('span');
+      check.className = 'check';
+      check.textContent = opt.selected ? '✓' : '';
+      const label = document.createElement('span');
+      label.textContent = opt.textContent || opt.value || '未命名';
+      row.append(check, label);
+      row.onclick = () => {
+        sel.value = opt.value;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        closeSelectMenu();
+        btn.focus();
+      };
+      menu.appendChild(row);
+    };
+
+    for (const child of sel.children) {
+      if (child.tagName === 'OPTGROUP') {
+        if (child.label) {
+          const head = document.createElement('div');
+          head.className = 'select-group';
+          head.textContent = child.label;
+          menu.appendChild(head);
+        }
+        for (const opt of child.children) if (opt.tagName === 'OPTION') addOption(opt);
+      } else if (child.tagName === 'OPTION') {
+        addOption(child);
+      }
+    }
+    if (!menu.children.length) {
+      const empty = document.createElement('div');
+      empty.className = 'select-group';
+      empty.textContent = '没有选项';
+      menu.appendChild(empty);
+    }
+
+    document.body.appendChild(menu);
+    const r = btn.getBoundingClientRect();
+    const width = Math.min(Math.max(r.width, 180), window.innerWidth - 16);
+    menu.style.width = width + 'px';
+    menu.style.left = Math.min(r.left, window.innerWidth - width - 8) + 'px';
+    const selectedRow = menu.querySelector('.select-opt.sel');
+    if (selectedRow) menu.scrollTop = Math.max(0, selectedRow.offsetTop - 48);
+    const h = menu.offsetHeight;
+    menu.style.top = (r.bottom + 6 + h > window.innerHeight - 8)
+      ? Math.max(8, r.top - h - 6) + 'px'
+      : (r.bottom + 6) + 'px';
+
+    const onDoc = (ev) => {
+      if (!menu.contains(ev.target) && ev.target !== btn) closeSelectMenu();
+    };
+    const onScroll = (ev) => {
+      if (ev.target === menu || menu.contains(ev.target)) return;
+      closeSelectMenu();
+    };
+    const onResize = () => closeSelectMenu();
+    const onKey = (ev) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); closeSelectMenu(); btn.focus(); }
+    };
+    document.addEventListener('mousedown', onDoc);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
+    document.addEventListener('keydown', onKey);
+    activeSelectMenu = {
+      menu,
+      cleanup: () => {
+        document.removeEventListener('mousedown', onDoc);
+        window.removeEventListener('scroll', onScroll, true);
+        window.removeEventListener('resize', onResize);
+        document.removeEventListener('keydown', onKey);
+      },
+    };
+  }
+
+  function enhanceSelect(sel) {
+    if (!sel || sel.dataset.customSelect) return;
+    if (sel.closest('.select-menu')) return;
+    sel.dataset.customSelect = '1';
+    sel.tabIndex = -1;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'select-wrap';
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(sel);
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'select select-btn';
+    btn.setAttribute('aria-haspopup', 'listbox');
+    wrap.appendChild(btn);
+
+    const sync = () => {
+      const opt = sel.options[sel.selectedIndex];
+      btn.textContent = opt ? opt.textContent : '请选择';
+      btn.disabled = sel.disabled;
+    };
+    sel.addEventListener('change', sync);
+    new MutationObserver(sync).observe(sel, { childList: true, subtree: true });
+    sync();
+
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (activeSelectMenu) { closeSelectMenu(); return; }
+      openSelectMenu(sel, btn);
+    });
+    btn.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter' || ev.key === ' ') {
+        ev.preventDefault();
+        openSelectMenu(sel, btn);
+      }
+    });
+  }
+
+  function enhanceAllSelects(root = document) {
+    root.querySelectorAll('select').forEach(enhanceSelect);
+  }
+
   /* ------------------------------------------------------------------ boot */
 
   async function boot() {
@@ -204,7 +343,10 @@
 
     document.addEventListener('keydown', (e) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'n') { e.preventDefault(); openEntryModal(); }
-      if (e.key === 'Escape') { if (!closeDialog(null)) closeModal(); }
+      if (e.key === 'Escape') {
+        if (activeSelectMenu) { closeSelectMenu(); return; }
+        if (!closeDialog(null)) closeModal();
+      }
     });
   }
 
@@ -939,7 +1081,9 @@
     return visible.map((p) => {
       const kids = cats.filter((c) => c.parent_id === p.id);
       if (!kids.length) return `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`;
-      return `<optgroup label="${esc(p.name)}">${kids.map((k) =>
+      // 导入账目可能只落在一级分类上，必须给一级分类一个明确选项，否则会误选第一个子类。
+      const parentOpt = `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${esc(p.name)}（不细分）</option>`;
+      return parentOpt + `<optgroup label="${esc(p.name)}">${kids.map((k) =>
         `<option value="${k.id}" ${String(selected) === String(k.id) ? 'selected' : ''}>${esc(p.name)} · ${esc(k.name)}</option>`).join('')}</optgroup>`;
     }).join('');
   }
@@ -954,8 +1098,13 @@
   function workRuleMatch(parent, child, text) {
     const wr = (state.meta.rules && state.meta.rules.work) || { keywords: [], exclude: [] };
     const body = [parent || '', child || '', text || ''].join(' ');
-    if ((wr.exclude || []).some((w) => w && body.includes(w))) return false;
-    return (wr.keywords || []).some((w) => w && body.includes(w));
+    const localTransit = (wr.exclude || []).some((w) => w && body.includes(w));
+    const trainWords = ['高铁', '动车', '火车', '铁路', '12306'];
+    return (wr.keywords || []).some((w) => {
+      if (!w || !body.includes(w)) return false;
+      if (localTransit && trainWords.some((t) => w.includes(t))) return false;
+      return true;
+    });
   }
 
   function defaultCategoryId(kind) {
@@ -2272,10 +2421,33 @@
 
   /* ------------------------------------------------------------------ import */
 
+  function sourceLabel(source) {
+    return source === 'alipay' ? '支付宝' : source === 'wechat' ? '微信支付' : '第三方记账';
+  }
+
+  async function undoImportBatch(batchId, count, filename = '') {
+    const n = Number(count || 0);
+    const label = filename ? `「${filename}」` : '这次导入';
+    if (!(await uiConfirm(`撤回${label}？\n将删除 ${n} 笔账目，手动改过的也会一起删除。`, {
+      danger: true, okText: '撤回',
+    }))) return false;
+    const res = await del('/imports/' + batchId);
+    toast(`已撤回 ${res.deleted} 笔${res.restored ? ' · 恢复 ' + res.restored + ' 笔退款调整' : ''}`);
+    await reloadMeta();
+    return true;
+  }
+
   async function renderImport() {
     const el = $('#view-import');
-    let suggestions = [];
-    try { suggestions = (await get('/import/suggestions')).files; } catch (_) {}
+    let suggestions = [], imports = [];
+    try {
+      const [sg, im] = await Promise.all([
+        get('/import/suggestions'),
+        get('/imports').catch(() => ({ items: [] })),
+      ]);
+      suggestions = sg.files;
+      imports = im.items || [];
+    } catch (_) {}
     el.innerHTML = `
       <div class="page-head">
         <div>
@@ -2290,6 +2462,22 @@
         <div class="hint">或 <button class="btn sm" id="pick-file" style="margin-top:8px">选择文件</button>　·　支付宝 / 微信：账单 → 导出；其他记账 App：设置 → 导出账单；恢复：选 .db 备份</div>
         <input type="file" id="file-input" accept=".xlsx,.csv,.db,.sqlite,.sqlite3" hidden>
       </div>
+
+      ${imports.length ? `
+        <div class="card" style="margin-top:14px">
+          <div class="card-head"><div class="card-title">最近导入</div>
+            <div class="card-sub">撤回会删除整批账目</div></div>
+          <div style="padding:2px 0">
+            ${imports.map((b) => `<div class="mini-row">
+              <div class="mini-icon">📥</div>
+              <div class="mini-main">
+                <div class="mini-title">${esc(b.filename || '导入记录')}</div>
+                <div class="mini-sub">${esc(sourceLabel(b.source))} · ${esc(b.created_at.slice(0, 16).replace('T', ' '))} · 导入 ${b.imported} 笔${b.refunds ? ' · 退款 ' + b.refunds + ' 笔' : ''}${b.remaining !== b.imported ? ' · 现存 ' + b.remaining : ''}</div>
+              </div>
+              <button class="btn sm ghost" data-undo-import="${b.id}">撤回</button>
+            </div>`).join('')}
+          </div>
+        </div>` : ''}
 
       ${suggestions.length ? `
         <div class="card" style="margin-top:14px">
@@ -2324,6 +2512,12 @@
     });
     el.querySelectorAll('[data-path]').forEach((row) => {
       row.onclick = () => previewFromPath(row.dataset.path);
+    });
+    el.querySelectorAll('[data-undo-import]').forEach((btn) => {
+      btn.onclick = async () => {
+        const b = imports.find((x) => x.id === btn.dataset.undoImport);
+        if (b && await undoImportBatch(b.id, b.remaining, b.filename)) renderImport();
+      };
     });
   }
 
@@ -2472,7 +2666,8 @@
           ${d.statuses && Object.keys(d.statuses).length ? `<div class="kv"><span class="k">交易状态</span><span class="v">${Object.entries(d.statuses).map(([k, v]) => esc(k) + ' ' + v).join(' · ')}</span></div>` : ''}
           ${d.skipped_total ? `<div class="kv"><span class="k">已跳过</span><span class="v">${d.skipped_total} 行 · ${Object.entries(d.skipped || {}).map(([k, v]) => esc(k) + ' ' + v).join('、')}</span></div>` : ''}
           <div class="kv"><span class="k">标记「不计入收支」</span><span class="v">${d.exclude_stats_count} 行</span></div>
-          <div class="kv"><span class="k">含退款</span><span class="v">${d.refund_count} 行</span></div>
+          ${d.refund_rows ? `<div class="kv"><span class="k">退款</span><span class="v">${d.refund_rows} 行 · ${money(d.refund_cents)}，导入时冲减原支出</span></div>` : ''}
+          <div class="kv"><span class="k">含退款金额标记</span><span class="v">${d.refund_count} 行</span></div>
 
 
           ${d.source !== 'onewood' ? `<div class="split-note" style="border:1px solid var(--line);border-radius:10px;margin-top:14px">
@@ -2528,12 +2723,17 @@
         <div class="card"><div class="card-body" style="text-align:center;padding:34px">
           <div style="font-size:30px">✅</div>
           <div style="font-size:16px;font-weight:650;margin:8px 0 4px">导入完成</div>
-          <div style="font-size:12px;color:var(--muted)">新增 ${res.imported} 笔 · 跳过 ${res.skipped} 笔${res.auto_work ? ' · 其中 ' + res.auto_work + ' 笔标为报销' : ''}${res.fixed_rows ? ' · ' + res.fixed_rows + ' 笔不计日常' : ''}${res.work_rows ? ' · 含报销记录 ' + res.work_rows + ' 条' : ''}${res.source === 'alipay' ? ' · 来自支付宝' : res.source === 'wechat' ? ' · 来自微信支付' : ''}</div>
+          <div style="font-size:12px;color:var(--muted)">新增 ${res.imported} 笔 · 跳过 ${res.skipped} 笔${res.auto_work ? ' · 其中 ' + res.auto_work + ' 笔标为报销' : ''}${res.fixed_rows ? ' · ' + res.fixed_rows + ' 笔不计日常' : ''}${res.work_rows ? ' · 含报销记录 ' + res.work_rows + ' 条' : ''}${res.refunds ? ' · 退款 ' + res.refunds + ' 笔已冲减' : ''}${res.unmatched_refunds ? ' · ' + res.unmatched_refunds + ' 笔退款未匹配' : ''}${res.source === 'alipay' ? ' · 来自支付宝' : res.source === 'wechat' ? ' · 来自微信支付' : ''}</div>
           <div style="margin-top:16px;display:flex;gap:8px;justify-content:center">
+            ${res.batch_id ? '<button class="btn danger" id="undo-this-import">撤销本次导入</button>' : ''}
             <a class="btn" href="#/overview">去看概览</a>
             <a class="btn primary" href="#/ledger">打开流水</a>
           </div>
         </div></div>`;
+      const undoThis = $('#undo-this-import');
+      if (undoThis) undoThis.onclick = async () => {
+        if (await undoImportBatch(res.batch_id, res.imported, d.filename)) renderImport();
+      };
       await reloadMeta();
       state.month = state.meta.months[0] || currentMonth();
       state.monthBeforeSearch = state.month;
@@ -2691,7 +2891,7 @@
               </div>
             </div>
             <div class="rule-block">
-              <div class="rule-label">排除词（备注命中就不算报销）</div>
+              <div class="rule-label">排除词（命中时只排除高铁 / 火车，不影响酒店和打车）</div>
               <div class="rule-chips">${(wr.exclude || []).map((w) => ruleChip(w, 'muted', 'work-exclude', w)).join('') || '<span class="rule-empty">没有排除词</span>'}</div>
               <div class="rule-add">
                 <input type="text" id="rule-work-ex" placeholder="添加排除词，如：地铁">
@@ -2873,16 +3073,20 @@
   let modalCloseHandler = null;
 
   function openModal(inner, onClose) {
+    closeSelectMenu();
     const root = $('#modal-root');
     root.innerHTML = `<div class="modal-backdrop"><div class="modal">${inner}</div></div>`;
     modalCloseHandler = onClose || null;
     const backdrop = root.querySelector('.modal-backdrop');
     backdrop.addEventListener('mousedown', (e) => { if (e.target === backdrop) closeModal(null); });
     root.querySelectorAll('[data-close]').forEach((b) => { b.onclick = () => closeModal(null); });
-    return root.querySelector('.modal');
+    const modal = root.querySelector('.modal');
+    enhanceAllSelects(modal);
+    return modal;
   }
 
   function closeModal(value = null) {
+    closeSelectMenu();
     const cb = modalCloseHandler;
     modalCloseHandler = null;
     $('#modal-root').innerHTML = '';
@@ -2973,6 +3177,17 @@
     else if (state.view === 'budget') await renderBudget();
     else if (state.view === 'settings') await renderSettings();
   }
+
+  enhanceAllSelects(document);
+  new MutationObserver((mutations) => {
+    for (const m of mutations) {
+      for (const node of m.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        if (node.tagName === 'SELECT') enhanceSelect(node);
+        else if (node.querySelectorAll) node.querySelectorAll('select').forEach(enhanceSelect);
+      }
+    }
+  }).observe(document.body, { childList: true, subtree: true });
 
   boot();
 })();
