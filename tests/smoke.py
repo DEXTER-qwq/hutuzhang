@@ -236,6 +236,39 @@ def main():
         code, info = req("GET", "/api/settings")
         check(info["counts"]["entries"] == 7, "count after delete")
 
+        print("\n[meal stats]")
+        code, meta_meal = req("GET", "/api/meta")
+        food_p = next(c for c in meta_meal["categories"] if c["name"] == "食品餐饮" and not c["parent_id"])
+        def meal_cat(name):
+            return next(c["id"] for c in meta_meal["categories"] if c["parent_id"] == food_p["id"] and c["name"] == name)
+        for occurred, amount, child in [
+            ("2026-08-08 08:00", 10, "早餐"),
+            ("2026-08-08 12:00", 20, "午餐"),
+            ("2026-08-08 19:00", 30, "晚餐"),
+            ("2026-08-09 12:00", 40, "午餐"),
+        ]:
+            req("POST", "/api/entries", {"occurred_at": occurred, "amount": amount,
+                                         "category_id": meal_cat(child), "note": "三餐测试"})
+        req("POST", "/api/entries", {"occurred_at": "2026-08-10 12:00", "amount": 50,
+                                     "category_id": meal_cat("午餐"), "note": "客户包餐",
+                                     "usage": "work"})
+        code, ms = req("GET", "/api/stats?period=month&key=2026-08&scope=personal")
+        m = ms["meals"]
+        check(m["total_cents"] == 10000 and m["count"] == 4 and m["days"] == 2,
+              "meal totals exclude work", m)
+        check(m["day_avg_cents"] == 5000 and m["three_meal_cents"] == 7000,
+              "meal day average", m)
+        by_name = {x["name"]: x for x in m["items"]}
+        check(by_name["早餐"]["avg_cents"] == 1000 and by_name["早餐"]["count"] == 1,
+              "breakfast average")
+        check(by_name["午餐"]["avg_cents"] == 3000 and by_name["午餐"]["count"] == 2,
+              "lunch average")
+        check(by_name["晚餐"]["avg_cents"] == 3000 and by_name["晚餐"]["count"] == 1,
+              "dinner average")
+        check(all(by_name[n]["category_id"] for n in ("早餐", "午餐", "晚餐")),
+              "meal category drill ids", by_name)
+
+
         print("\n[alipay import]")
         ali_rows = [
             ["2026/10/10 12:30", "餐饮美食", "某餐厅", "", "午饭", "支出", "32.00", "账户余额",

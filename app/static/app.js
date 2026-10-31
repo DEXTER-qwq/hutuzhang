@@ -1461,6 +1461,9 @@
     const pct = (a, b) => b ? Math.round((a - b) / b * 100) : null;
     const dExp = pct(d.summary.expense_cents, d.prev.expense_cents);
     const dInc = pct(d.summary.income_cents, d.prev.income_cents);
+    const meals = d.meals || {};
+    const mealItems = meals.items || [];
+    const showMeals = meals.total_cents > 0 && (st.scope === 'personal' || st.scope === 'all');
 
     el.innerHTML = `
       <div class="page-head">
@@ -1522,6 +1525,31 @@
           </div>
         `}
       </div>
+
+      ${showMeals ? `<div class="card stats-section" id="st-meals">
+        <div class="card-head">
+          <div><div class="card-title">三餐均价</div>
+            <div class="card-sub">食品餐饮 · 仅日常消费 · 客户包餐日不进入分母</div></div>
+          <div class="card-sub">有记录 <b style="color:var(--ink)">${meals.days}</b> 天</div>
+        </div>
+        <div class="meal-grid">
+          ${mealItems.map((m) => `<div class="meal-item" ${m.category_id ? `data-meal-cat="${m.category_id}"` : ''}>
+            <div class="meal-name">${esc(m.name)} <span>${m.count} 次</span></div>
+            <div class="meal-price">${m.count ? money(m.avg_cents) : '—'}</div>
+            <div class="meal-hint">单次均价</div>
+          </div>`).join('')}
+          <div class="meal-item meal-day">
+            <div class="meal-name">有记录日均</div>
+            <div class="meal-price">${meals.days ? money(meals.day_avg_cents) : '—'}</div>
+            <div class="meal-hint">三餐均价合计 ${money(meals.three_meal_cents)}</div>
+          </div>
+        </div>
+        <div class="meal-note">
+          单次均价 = 该类总支出 ÷ 记录次数；有记录日均 = 食品餐饮总支出 ÷ 有餐饮记录的天数。
+          客户包餐日没有餐饮记录，不会拉低均价；只记一餐的日子会影响日均，但不影响单次均价。
+          ${meals.other && meals.other.amount_cents ? `含未细分 ${money(meals.other.amount_cents)}，已计入总支出和日均。` : ''}
+        </div>
+      </div>` : ''}
 
       <div class="card stats-section" id="st-flow">
         <div class="card-head">
@@ -1609,6 +1637,13 @@
           drillToLedger({ month: node.dataset.drillMonth });
         }
       };
+    });
+    el.querySelectorAll('[data-meal-cat]').forEach((node) => {
+      node.onclick = () => drillToLedger({
+        categoryId: Number(node.dataset.mealCat),
+        month: st.period === 'month' ? st.key : '',
+        year: st.period === 'year' ? st.key : '',
+      });
     });
     el.querySelectorAll('[data-cat-id]').forEach((node) => {
       node.onclick = (ev) => {
@@ -2467,7 +2502,7 @@
         <div class="card" style="margin-top:14px">
           <div class="card-head"><div class="card-title">最近导入</div>
             <div class="card-sub">撤回会删除整批账目</div></div>
-          <div style="padding:2px 0">
+          <div class="card-body" style="padding-top:2px;padding-bottom:2px">
             ${imports.map((b) => `<div class="mini-row">
               <div class="mini-icon">📥</div>
               <div class="mini-main">

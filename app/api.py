@@ -1721,6 +1721,57 @@ def stats(period: str = "month", key: str = "", scope: str = "personal", con=Dep
         for r in income_rows
     ]
 
+    meal_rows = con.execute(
+        """SELECT c.id AS category_id, c.name AS category_name, p.name AS parent_name,
+                  COALESCE(SUM(e.amount_cents), 0) AS amount_cents, COUNT(*) AS n
+           FROM entries e
+           LEFT JOIN categories c ON c.id = e.category_id
+           LEFT JOIN categories p ON p.id = c.parent_id
+           WHERE e.kind='expense' AND e.usage='personal' AND e.exclude_stats=0
+             AND COALESCE(p.name, c.name) = '食品餐饮'
+             AND e.occurred_at >= ? AND e.occurred_at < ?
+           GROUP BY c.id""",
+        (start, end),
+    ).fetchall()
+    meal_days = con.execute(
+        """SELECT COUNT(DISTINCT substr(e.occurred_at, 1, 10)) AS n
+           FROM entries e
+           LEFT JOIN categories c ON c.id = e.category_id
+           LEFT JOIN categories p ON p.id = c.parent_id
+           WHERE e.kind='expense' AND e.usage='personal' AND e.exclude_stats=0
+             AND COALESCE(p.name, c.name) = '食品餐饮'
+             AND e.occurred_at >= ? AND e.occurred_at < ?""",
+        (start, end),
+    ).fetchone()["n"]
+
+    meal_names = ("早餐", "午餐", "晚餐")
+    meal_data = {
+        name: {"name": name, "amount_cents": 0, "count": 0, "category_id": None}
+        for name in meal_names
+    }
+    meal_data["其他"] = {"name": "其他", "amount_cents": 0, "count": 0, "category_id": None}
+    for r in meal_rows:
+        is_food_parent = (r["parent_name"] is None and r["category_name"] == "食品餐饮")
+        key = r["category_name"] if (not is_food_parent and r["category_name"] in meal_names) else "其他"
+        meal_data[key]["amount_cents"] += r["amount_cents"]
+        meal_data[key]["count"] += r["n"]
+        if key != "其他" and meal_data[key]["category_id"] is None:
+            meal_data[key]["category_id"] = r["category_id"]
+    for item in meal_data.values():
+        item["avg_cents"] = round(item["amount_cents"] / item["count"]) if item["count"] else 0
+    meal_total = sum(item["amount_cents"] for item in meal_data.values())
+    meal_count = sum(item["count"] for item in meal_data.values())
+    three_meal_cents = sum(meal_data[name]["avg_cents"] for name in meal_names)
+    meals = {
+        "total_cents": meal_total,
+        "count": meal_count,
+        "days": meal_days,
+        "day_avg_cents": round(meal_total / meal_days) if meal_days else 0,
+        "three_meal_cents": three_meal_cents,
+        "items": [meal_data[name] for name in meal_names],
+        "other": meal_data["其他"],
+    }
+
     accounts = con.execute("SELECT id, type FROM accounts WHERE archived = 0").fetchall()
     asset_series = []
     for d in asset_dates:
@@ -1763,6 +1814,7 @@ def stats(period: str = "month", key: str = "", scope: str = "personal", con=Dep
         "categories": categories,
         "income_categories": income_categories,
         "income_total_cents": income_total,
+        "meals": meals,
         "assets": asset_series,
     }
 
