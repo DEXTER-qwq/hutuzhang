@@ -8,11 +8,12 @@
 
 <p>
   <img alt="macOS" src="https://img.shields.io/badge/platform-macOS-111111?style=flat-square">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.1.0-1F5136?style=flat-square">
   <img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white">
   <img alt="License" src="https://img.shields.io/badge/license-MIT-2ea44f?style=flat-square">
 </p>
 
-[功能](#功能) · [下载 / 运行](#下载--运行) · [演示数据](#演示数据) · [打包](#打包)
+[功能](#功能) · [下载 / 运行](#下载--运行) · [更新记录](CHANGELOG.md) · [演示数据](#演示数据) · [打包](#打包)
 
 </div>
 
@@ -38,7 +39,7 @@
 - **流水**：按天分组、可按具体日期跳转、按日常/报销/分类/账户筛选、关键词搜索（跨月）、批量标记、批量删除；筛选后可一键清除；支持连续流水瀑布加载，按月份和日期分段；可批量标为「不计预算」
 - **概览**：本月日常消费（环比）、本月报销、本月收入、本月总支出；本月预算进度（日均预算 / 今日剩余）；12 个月趋势（日常 / 不计预算 / 报销 / 固定，固定截至本月，不随上方月份切换）、分类占比、本月报销明细
 - **图表交互**：柱状图、环形图、净资产曲线都可以悬浮查看具体金额
-- **统计**：月统计 / 年统计；收支统计（按天/按月）、收支占比、资产走势；概览卡片可点击跳转
+- **统计**：月统计 / 年统计；收支统计（按天/按月）、收支占比、资产走势；概览卡片可点击跳转；收入分类使用独立色板，点分类跳转精确流水
 - **三餐均价**：食品餐饮下分别看早餐 / 午餐 / 晚餐的单次均价，以及有餐饮记录日期的日均；客户包餐日没有记录，不进入分母
 - **资产 / 净资产**：银行卡、支付宝、微信、投资、信用卡统一管理；净资产 = 资金 + 投资 − 负债；支持转账、糊涂账
 - **预算**：总预算 + 分类预算 + 日均预算，按自然月统计日常消费，报销账目自动不计入
@@ -53,7 +54,7 @@
 仓库不提交打包产物。到 **GitHub Releases** 下载：
 
 ```
-hutuzhang-1.0.0-macos-arm64.zip
+hutuzhang-1.1.0-macos-arm64.zip
 ```
 
 解压后双击 `糊涂账.app`。首次打开若提示“无法验证开发者”，右键 → 打开，或：
@@ -318,7 +319,7 @@ assets/           图标和截图
 ## 测试
 
 ```bash
-.venv/bin/python tests/smoke.py     # 203 项 API 端到端断言，使用临时数据目录
+.venv/bin/python tests/smoke.py     # 207 项 API 端到端断言，使用临时数据目录
 ```
 
 ## 说明
@@ -338,9 +339,9 @@ assets/           图标和截图
 产物：
 
 - `dist/糊涂账.app`（arm64，约 41 MB）
-- `hutuzhang-1.0.0-macos-arm64.zip`（约 17 MB）
+- `hutuzhang-1.1.0-macos-arm64.zip`（约 17 MB）
 
-构建脚本会设置 `PYINSTALLER_CONFIG_DIR`，避免写入系统缓存目录；打包后统一写入 1.0.0 版本并做 ad-hoc 签名。
+构建脚本会设置 `PYINSTALLER_CONFIG_DIR`，避免写入系统缓存目录；版本号从 `app/version.py` 读取并写入 App，然后做 ad-hoc 签名。版本历史见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 技术栈
 

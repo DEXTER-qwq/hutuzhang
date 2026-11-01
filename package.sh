@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-VERSION="1.0.0"
+VERSION="$(python3 -c 'from app.version import __version__; print(__version__)')"
 APP="dist/糊涂账.app"
 ZIP="../hutuzhang-${VERSION}-macos-arm64.zip"
 

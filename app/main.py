@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import api, db
+from .version import __version__
 
 if getattr(sys, "frozen", False):
     STATIC = Path(sys._MEIPASS) / "app" / "static"  # type: ignore[attr-defined]
@@ -24,7 +25,7 @@ def create_app() -> FastAPI:
         db.init_db()
         yield
 
-    app = FastAPI(title="糊涂账", version="1.0.0", lifespan=lifespan)
+    app = FastAPI(title="糊涂账", version=__version__, lifespan=lifespan)
     app.include_router(api.router)
     app.mount("/static", StaticFiles(directory=str(STATIC)), name="static")
 
@@ -41,7 +42,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def health():
-        return {"ok": True, "version": "1.0.0"}
+        return {"ok": True, "version": __version__}
 
     return app
 

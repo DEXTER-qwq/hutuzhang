@@ -26,6 +26,7 @@ from openpyxl import Workbook  # noqa: E402
 
 from app.main import app  # noqa: E402
 from app import rules  # noqa: E402
+from app.version import __version__  # noqa: E402
 
 PORT = 8791
 BASE = f"http://127.0.0.1:{PORT}"
@@ -127,7 +128,7 @@ def main():
     try:
         print("\n[health & meta]")
         code, d = req("GET", "/api/health")
-        check(code == 200 and d["ok"], "health")
+        check(code == 200 and d["ok"] and d["version"] == __version__, "health version", d)
         code, meta = req("GET", "/api/meta")
         check(code == 200 and len(meta["categories"]) > 10, "meta has categories")
         check(len(meta["accounts"]) >= 5, "meta has accounts")
@@ -268,6 +269,27 @@ def main():
         check(all(by_name[n]["category_id"] for n in ("早餐", "午餐", "晚餐")),
               "meal category drill ids", by_name)
 
+
+        print("\n[income category drill]")
+        code, meta_inc = req("GET", "/api/meta")
+        inc_parent = next(c for c in meta_inc["categories"] if c["name"] == "收入" and not c["parent_id"])
+        inc_salary = next(c for c in meta_inc["categories"] if c["parent_id"] == inc_parent["id"] and c["name"] == "工资")
+        for amount in (100, 200, 50):
+            req("POST", "/api/entries", {"occurred_at": "2026-07-10", "amount": amount,
+                                         "kind": "income", "category_id": inc_parent["id"],
+                                         "note": "一级收入测试"})
+        req("POST", "/api/entries", {"occurred_at": "2026-07-11", "amount": 500, "kind": "income",
+                                     "category_id": inc_salary["id"], "note": "工资测试"})
+        code, inc_stats = req("GET", "/api/stats?period=month&key=2026-07&scope=all")
+        rows = {c["name"]: c for c in inc_stats["income_categories"]}
+        check(rows.get("收入", {}).get("count") == 3 and rows["收入"]["amount_cents"] == 35000,
+              "income parent row", rows.get("收入"))
+        check(len({c["color"] for c in inc_stats["income_categories"]}) == len(inc_stats["income_categories"]),
+              "income categories have distinct colors", [c["color"] for c in inc_stats["income_categories"]])
+        code, exact = req("GET", f"/api/entries?month=2026-07&category_id={inc_parent['id']}&exact_category=1")
+        check(exact["total"] == 3 and exact["income_cents"] == 35000, "exact income drill", exact["total"])
+        code, tree = req("GET", f"/api/entries?month=2026-07&category_id={inc_parent['id']}")
+        check(tree["total"] == 4 and tree["income_cents"] == 85000, "parent income includes children", tree["total"])
 
         print("\n[alipay import]")
         ali_rows = [

@@ -20,6 +20,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import db, importer, rules
+from .version import __version__
 
 router = APIRouter(prefix="/api")
 
@@ -414,6 +415,7 @@ def list_entries(
     status: str = "",
     kind: str = "",
     category_id: Optional[int] = None,
+    exact_category: bool = False,
     account_id: Optional[int] = None,
     q: str = "",
     limit: int = Query(default=100, le=500),
@@ -439,8 +441,12 @@ def list_entries(
         where.append("e.account_id = ?")
         params.append(account_id)
     if category_id:
-        where.append("(e.category_id = ? OR c.parent_id = ?)")
-        params += [category_id, category_id]
+        if exact_category:
+            where.append("e.category_id = ?")
+            params.append(category_id)
+        else:
+            where.append("(e.category_id = ? OR c.parent_id = ?)")
+            params += [category_id, category_id]
     if q:
         where.append("(e.note LIKE ? OR e.project LIKE ?)")
         params += [f"%{q}%", f"%{q}%"]
@@ -1712,13 +1718,16 @@ def stats(period: str = "month", key: str = "", scope: str = "personal", con=Dep
         (start, end),
     ).fetchall()
     income_total = sum(r["amount_cents"] for r in income_rows)
+    income_palette = ["#22C55E", "#0EA5E9", "#F59E0B", "#8B5CF6", "#EC4899",
+                      "#14B8A6", "#F97316", "#64748B"]
     income_categories = [
         {
-            "id": r["id"], "name": r["name"], "icon": r["icon"], "color": r["color"],
+            "id": r["id"], "name": r["name"], "icon": r["icon"],
+            "color": income_palette[i % len(income_palette)],
             "amount_cents": r["amount_cents"], "count": r["n"],
             "share": round(r["amount_cents"] / income_total, 4) if income_total else 0,
         }
-        for r in income_rows
+        for i, r in enumerate(income_rows)
     ]
 
     meal_rows = con.execute(
@@ -1833,7 +1842,7 @@ def settings(con=Depends(get_con)):
         "data_path": str(db.DB_PATH),
         "db_size": size,
         "counts": dict(counts),
-        "version": "1.0.0",
+        "version": __version__,
     }
 
 

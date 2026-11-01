@@ -13,6 +13,7 @@ fi
 "$PIP" -q install -r requirements.txt
 
 export PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller-cache"
+VERSION="$("$PY" -c 'from app.version import __version__; print(__version__)')"
 
 .venv/bin/pyinstaller \
   --noconfirm --clean --windowed \
@@ -26,10 +27,10 @@ export PYINSTALLER_CONFIG_DIR="$PWD/.pyinstaller-cache"
 
 APP="dist/糊涂账.app"
 PLIST="$APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0.0" "$PLIST" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0.0" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleVersion 1.0.0" "$PLIST" 2>/dev/null \
-  || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string 1.0.0" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VERSION" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $VERSION" "$PLIST" 2>/dev/null \
+  || /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string $VERSION" "$PLIST"
 codesign --force --deep --sign - "$APP" >/dev/null 2>&1 || true
 
 echo

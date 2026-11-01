@@ -12,7 +12,7 @@
     view: 'overview',
     overview: null,
     ledger: { items: [], total: 0, offset: 0, loading: false },
-    filters: { usage: '', status: '', category_id: '', account_id: '', q: '' },
+    filters: { usage: '', status: '', category_id: '', account_id: '', q: '', exactCategory: false },
     ledgerDate: '',
     ledgerRange: null,
     ledgerContinuous: false,
@@ -21,6 +21,9 @@
     importFile: null,
     importMode: 'merge',
     routeParams: null,
+    ledgerReturn: null,
+    restoreBudgetScroll: null,
+    restoreStatsScroll: null,
     stats: { period: 'month', key: '', scope: 'all', metric: 'expense', catMetric: 'expense', scrollTo: '' },
   };
 
@@ -288,6 +291,7 @@
     state.routeParams = new URLSearchParams(qs || '');
     const allowed = ['overview', 'stats', 'ledger', 'assets', 'budget', 'import', 'settings'];
     const v = allowed.includes(view) ? view : 'overview';
+    if (v !== 'ledger') state.ledgerReturn = null;
     state.view = v;
     document.body.className = 'view-' + v;
     $$('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.view === v));
@@ -726,6 +730,7 @@
     el.innerHTML = `
       <div class="page-head">
         <div>
+          ${state.ledgerReturn ? `<button class="back-link" id="back-to-budget">← 返回${state.ledgerReturn.view === 'stats' ? '统计' : '预算'}</button>` : ''}
           <h1 class="page-title">流水</h1>
           <div class="page-sub" id="ledger-sub">—</div>
         </div>
@@ -772,6 +777,25 @@
       </div>
     `;
 
+    const backBudget = $('#back-to-budget');
+    if (backBudget) backBudget.onclick = () => {
+      const ret = state.ledgerReturn;
+      if (!ret) return;
+      state.ledgerReturn = null;
+      state.filters = { usage: '', status: '', category_id: '', account_id: '', q: '', exactCategory: false };
+      state.ledgerDate = '';
+      state.ledgerRange = null;
+      state.ledgerContinuous = false;
+      if (ret.view === 'stats') {
+        state.restoreStatsScroll = ret.scrollTop || 0;
+        location.hash = '#/stats';
+      } else {
+        state.month = ret.month || currentMonth();
+        state.monthBeforeSearch = state.month;
+        state.restoreBudgetScroll = ret.scrollTop || 0;
+        location.hash = '#/budget';
+      }
+    };
     $('#seg-usage').onclick = (e) => {
       const b = e.target.closest('button[data-v]');
       if (!b) return;
@@ -780,7 +804,7 @@
       state.ledger.offset = 0;
       loadLedger(true);
     };
-    $('#f-cat').onchange = (e) => { state.filters.category_id = e.target.value; loadLedger(true); };
+    $('#f-cat').onchange = (e) => { state.filters.category_id = e.target.value; state.filters.exactCategory = false; loadLedger(true); };
     $('#f-acc').onchange = (e) => { state.filters.account_id = e.target.value; loadLedger(true); };
 
     attachDatePicker(el.querySelector('#ledger-date-field'), state.ledgerDate, {
@@ -801,7 +825,7 @@
     const clearFilters = $('#clear-filters');
     if (clearFilters) {
       clearFilters.onclick = () => {
-        state.filters = { usage: '', status: '', category_id: '', account_id: '', q: '' };
+        state.filters = { usage: '', status: '', category_id: '', account_id: '', q: '', exactCategory: false };
         state.ledgerDate = '';
         state.ledgerRange = null;
         $('#global-search').value = '';
@@ -849,6 +873,7 @@
     if (f.usage) p.set('usage', f.usage);
     if (f.status) p.set('status', f.status);
     if (f.category_id) p.set('category_id', f.category_id);
+    if (f.exactCategory) p.set('exact_category', '1');
     if (f.account_id) p.set('account_id', f.account_id);
     if (f.q) p.set('q', f.q);
     p.set('limit', '100');
@@ -983,7 +1008,6 @@
           </div>
           <div class="row-actions">
             <button data-act="edit" title="编辑"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/></svg></button>
-            <button data-act="more" title="更多">⋯</button>
           </div>
         </div>
       </div>`;
@@ -995,7 +1019,6 @@
     const id = Number(row.dataset.id);
     const act = ev.target.closest('[data-act]')?.dataset.act;
     if (act === 'edit') { openEntryModal(state.ledger.items.find((x) => x.id === id)); return; }
-    if (act === 'more') { openRowMenu(id); return; }
     if (act === 'select') {
       if (state.selection.has(id)) state.selection.delete(id); else state.selection.add(id);
       row.classList.toggle('checked', state.selection.has(id));
@@ -1040,33 +1063,6 @@
     }
     state.selection.clear();
     await reloadAll();
-  }
-
-  function openRowMenu(id) {
-    const e = state.ledger.items.find((x) => x.id === id);
-    if (!e) return;
-    const m = openModal(`
-      <div class="modal-head"><h3>${esc(e.note || e.category_label)}</h3>
-        <button class="icon-btn" data-close>✕</button></div>
-      <div class="modal-body" style="gap:10px">
-        <div class="kv"><span class="k">金额</span><span class="v">${money(e.amount_cents)}</span></div>
-        <div class="kv"><span class="k">分类</span><span class="v">${esc(e.category_label)}</span></div>
-        <div class="kv"><span class="k">账户</span><span class="v">${esc(e.account_name || '—')}</span></div>
-        <div class="kv"><span class="k">用途</span><span class="v">${e.usage === 'work' ? '报销' : e.exclude_daily ? '日常（不计入）' : '日常'}</span></div>
-        <div class="kv"><span class="k">标记</span><span class="v">${e.usage === 'work' ? '报销' : '日常'}</span></div>
-        <div class="kv"><span class="k">预算</span><span class="v">${e.exclude_budget ? '不计预算' : '计入预算'}</span></div>
-        <div class="kv"><span class="k">时间</span><span class="v">${esc(e.occurred_at)}</span></div>
-      </div>
-      <div class="modal-foot">
-        <button class="btn danger" data-act="del">删除</button>
-        <button class="btn" data-act="edit">编辑</button>
-      </div>`);
-    m.querySelector('[data-act="del"]').onclick = async () => {
-      if (!(await uiConfirm('删除这笔账目？', { danger: true, okText: '删除' }))) return;
-      await del('/entries/' + e.id);
-      closeModal(); toast('已删除'); await reloadAll();
-    };
-    m.querySelector('[data-act="edit"]').onclick = () => { closeModal(); openEntryModal(e); };
   }
 
   /* ------------------------------------------------------------------ entry modal */
@@ -1417,8 +1413,10 @@
 
   /* ------------------------------------------------------------------ statistics */
 
-  async function renderStats() {
+  async function renderStats({ keepScroll = false } = {}) {
     const el = $('#view-stats');
+    const scroller = document.querySelector('.views');
+    const keepTop = keepScroll && scroller ? scroller.scrollTop : 0;
     const st = state.stats;
     if (state.routeParams) {
       const p = state.routeParams;
@@ -1437,7 +1435,7 @@
     if (st.scope === 'work' || st.scope === 'nobudget') st.metric = 'expense';
     if (!st.key) st.key = st.period === 'year' ? currentMonth().slice(0, 4) : currentMonth();
 
-    el.innerHTML = '<div class="empty">加载中…</div>';
+    if (!keepScroll) el.innerHTML = '<div class="empty">加载中…</div>';
     let d;
     try {
       d = await get('/stats?period=' + st.period + '&key=' + encodeURIComponent(st.key) +
@@ -1607,26 +1605,26 @@
         if (next === st.period) return;
         st.period = next;
         st.key = next === 'year' ? st.key.slice(0, 4) : (st.key.length === 4 ? currentMonth() : st.key);
-        renderStats();
+        renderStats({ keepScroll: true });
       };
     });
     el.querySelectorAll('[data-scope]').forEach((b) => {
-      b.onclick = () => { st.scope = b.dataset.scope; renderStats(); };
+      b.onclick = () => { st.scope = b.dataset.scope; renderStats({ keepScroll: true }); };
     });
     el.querySelectorAll('[data-metric]').forEach((b) => {
-      b.onclick = () => { st.metric = b.dataset.metric; renderStats(); };
+      b.onclick = () => { st.metric = b.dataset.metric; renderStats({ keepScroll: true }); };
     });
     el.querySelectorAll('[data-catmetric]').forEach((b) => {
-      b.onclick = () => { st.catMetric = b.dataset.catmetric; renderStats(); };
+      b.onclick = () => { st.catMetric = b.dataset.catmetric; renderStats({ keepScroll: true }); };
     });
 
     $('#st-prev').onclick = () => {
       st.key = st.period === 'year' ? String(Number(st.key) - 1) : shiftMonthKey(st.key, -1);
-      renderStats();
+      renderStats({ keepScroll: true });
     };
     $('#st-next').onclick = () => {
       st.key = st.period === 'year' ? String(Number(st.key) + 1) : shiftMonthKey(st.key, 1);
-      renderStats();
+      renderStats({ keepScroll: true });
     };
 
     el.querySelectorAll('[data-drill-date], [data-drill-month]').forEach((node) => {
@@ -1654,11 +1652,25 @@
           categoryId: id,
           month: st.period === 'month' ? st.key : '',
           year: st.period === 'year' ? st.key : '',
+          exactCategory: catIncome,
         });
       };
     });
 
     wireLineChart(el.querySelector('.line-chart'), d.assets, st.period);
+
+    if (keepScroll && scroller) {
+      scroller.scrollTop = keepTop;
+      requestAnimationFrame(() => { scroller.scrollTop = keepTop; });
+    }
+    if (state.restoreStatsScroll != null) {
+      const top = state.restoreStatsScroll;
+      state.restoreStatsScroll = null;
+      if (scroller) {
+        scroller.scrollTop = top;
+        requestAnimationFrame(() => { scroller.scrollTop = top; });
+      }
+    }
 
     if (st.scrollTo) {
       const target = document.getElementById('st-' + st.scrollTo);
@@ -1667,8 +1679,11 @@
     }
   }
 
-  function drillToLedger({ categoryId, date, month, year }) {
+  function drillToLedger({ categoryId, date, month, year, exactCategory = false }) {
+    const scroller = document.querySelector('.views');
+    state.ledgerReturn = { view: 'stats', scrollTop: scroller ? scroller.scrollTop : 0 };
     state.filters.category_id = categoryId ? String(categoryId) : '';
+    state.filters.exactCategory = !!exactCategory;
     state.filters.q = '';
     state.ledgerDate = date || '';
     state.ledgerRange = null;
@@ -2368,7 +2383,10 @@
       row.onclick = () => {
         const item = d.items.find((i) => i.category_id === Number(row.dataset.budget));
         if (!item) return;
+        const scroller = document.querySelector('.views');
+        state.ledgerReturn = { view: 'budget', month: state.month, scrollTop: scroller ? scroller.scrollTop : 0 };
         state.filters.category_id = String(item.category_id);
+        state.filters.exactCategory = false;
         state.filters.usage = 'personal';
         state.filters.status = '';
         state.filters.q = '';
@@ -2393,6 +2411,16 @@
         if (s) openBudgetModal(s.category_id, s.name, 0);
       };
     });
+
+    if (state.restoreBudgetScroll != null) {
+      const top = state.restoreBudgetScroll;
+      state.restoreBudgetScroll = null;
+      const scroller = document.querySelector('.views');
+      if (scroller) {
+        scroller.scrollTop = top;
+        requestAnimationFrame(() => { scroller.scrollTop = top; });
+      }
+    }
   }
 
   function budgetRow(b) {
@@ -2647,7 +2675,7 @@
       state.month = (state.meta.months || [])[0] || currentMonth();
       state.ledgerDate = '';
       state.ledgerRange = null;
-      state.filters = { usage: '', status: '', category_id: '', account_id: '', q: '' };
+      state.filters = { usage: '', status: '', category_id: '', account_id: '', q: '', exactCategory: false };
       $('#global-search').value = '';
       box.innerHTML = `
         <div class="card">
