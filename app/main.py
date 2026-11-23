@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import api, db
+from . import api, db, importer
 from .version import __version__
 
 if getattr(sys, "frozen", False):
@@ -23,6 +23,11 @@ def create_app() -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         db.init_db()
+        con = db.connect()
+        try:
+            importer.backfill_food_categories(con)
+        finally:
+            con.close()
         yield
 
     app = FastAPI(title="糊涂账", version=__version__, lifespan=lifespan)

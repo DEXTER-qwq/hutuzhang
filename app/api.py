@@ -1758,10 +1758,14 @@ def stats(period: str = "month", key: str = "", scope: str = "personal", con=Dep
         name: {"name": name, "amount_cents": 0, "count": 0, "category_id": None}
         for name in meal_names
     }
+    meal_data["奶茶"] = {"name": "奶茶", "amount_cents": 0, "count": 0, "category_id": None}
     meal_data["其他"] = {"name": "其他", "amount_cents": 0, "count": 0, "category_id": None}
     for r in meal_rows:
         is_food_parent = (r["parent_name"] is None and r["category_name"] == "食品餐饮")
-        key = r["category_name"] if (not is_food_parent and r["category_name"] in meal_names) else "其他"
+        if not is_food_parent and r["category_name"] == "奶茶":
+            key = "奶茶"
+        else:
+            key = r["category_name"] if (not is_food_parent and r["category_name"] in meal_names) else "其他"
         meal_data[key]["amount_cents"] += r["amount_cents"]
         meal_data[key]["count"] += r["n"]
         if key != "其他" and meal_data[key]["category_id"] is None:
@@ -1778,6 +1782,7 @@ def stats(period: str = "month", key: str = "", scope: str = "personal", con=Dep
         "day_avg_cents": round(meal_total / meal_days) if meal_days else 0,
         "three_meal_cents": three_meal_cents,
         "items": [meal_data[name] for name in meal_names],
+        "milk_tea": meal_data["奶茶"],
         "other": meal_data["其他"],
     }
 

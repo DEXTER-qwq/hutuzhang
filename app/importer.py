@@ -133,17 +133,25 @@ def _refine_category(alipay_cat: str, party: str, item: str) -> str:
     return ALIPAY_CATEGORY_MAP.get(alipay_cat, "其他")
 
 
+MILK_TEA_WORDS = ("奶茶", "喜茶", "蜜雪", "茶百道", "奈雪", "霸王茶姬", "古茗",
+                  "沪上阿姨", "茶颜悦色", "一点点", "CoCo", "珍珠奶茶", "波波", "果茶", "茶饮")
+
+
+def _is_milk_tea(text: str) -> bool:
+    body = (text or "").lower()
+    return any(w.lower() in body for w in MILK_TEA_WORDS)
+
+
 # 一级分类确定后，再按商户 / 商品 / 时间落到软件内的二级分类
 CHILD_RULES = {
     "食品餐饮": [
-        ("外卖", ("美团外卖", "饿了么", "外卖", "美团", "饿了么")),
-        ("饮料酒水", ("咖啡", "奶茶", "饮料", "酒水", "星巴克", "瑞幸", "蜜雪", "喜茶",
-                      "茶百道", "奈雪", "可乐", "矿泉水", "茶饮")),
+        ("奶茶", MILK_TEA_WORDS),
+        ("饮料酒水", ("咖啡", "饮料", "酒水", "星巴克", "瑞幸", "可乐", "矿泉水")),
         ("休闲零食", ("零食", "良品铺子", "三只松鼠", "百草味", "来伊份", "坚果")),
         ("生鲜食品", ("生鲜", "菜市场", "买菜", "水果", "盒马", "超市", "山姆")),
         ("早餐", ("早餐", "包子", "豆浆", "油条", "煎饼", "粥")),
-        ("午餐", ("午餐", "午饭", "中饭")),
-        ("晚餐", ("晚餐", "晚饭")),
+        ("午餐", ("午餐", "午饭", "中饭", "中午")),
+        ("晚餐", ("晚餐", "晚饭", "夜宵", "宵夜")),
         ("粮油调味", ("粮油", "调味", "大米", "食用油")),
         ("请客吃饭", ("请客", "聚餐", "宴请")),
     ],
@@ -226,13 +234,13 @@ def _category_child(parent: str, text: str, occurred: str = "", source_cat: str 
         try:
             hour = int(occurred[11:13])
         except (TypeError, ValueError):
-            hour = 0
-        if 5 <= hour < 10:
+            return ""
+        if 4 <= hour < 10:
             return "早餐"
-        if 10 <= hour < 15:
+        if 10 <= hour < 16:
             return "午餐"
-        if 15 <= hour < 23:
-            return "晚餐"
+        # 16:00 之后到次日 04:00 之前都算晚餐，夜宵不单列。
+        return "晚餐"
     return ""
 
 
@@ -554,6 +562,41 @@ def _auto_work(r: dict, cfg: dict | None = None) -> bool:
     return rules.is_work(
         _norm(r.get("类别")), _norm(r.get("子类")), _rule_text(r), cfg=cfg
     )
+
+
+def backfill_food_categories(con) -> int:
+    """给旧版导入的餐饮账目补二级分类；只处理支付宝 / 微信导入，幂等。"""
+    parent = con.execute(
+        "SELECT id FROM categories WHERE parent_id IS NULL AND name='食品餐饮'"
+    ).fetchone()
+    if not parent:
+        return 0
+    rows = con.execute(
+        """SELECT e.id, e.occurred_at, e.note, c.name, c.parent_id
+           FROM entries e
+           JOIN categories c ON c.id = e.category_id
+           WHERE e.kind='expense' AND e.source IN ('alipay', 'wechat')
+             AND ((c.id = ? AND c.name = '食品餐饮')
+                  OR (c.parent_id = ? AND c.name IN ('食品餐饮', '饮料酒水')))""",
+        (parent["id"], parent["id"]),
+    ).fetchall()
+    changed = 0
+    for r in rows:
+        child = ""
+        if r["name"] == "食品餐饮":
+            child = _category_child("食品餐饮", r["note"] or "", r["occurred_at"] or "")
+        elif _is_milk_tea(r["note"] or ""):
+            child = "奶茶"
+        if not child or child == r["name"]:
+            continue
+        cid = _ensure_category(con, "食品餐饮", child)
+        if cid != r["parent_id"]:
+            con.execute("UPDATE entries SET category_id=?, updated_at=? WHERE id=?",
+                        (cid, datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), r["id"]))
+            changed += 1
+    if changed:
+        con.commit()
+    return changed
 
 
 # --------------------------------------------------------------------------- preview

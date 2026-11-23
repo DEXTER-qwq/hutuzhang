@@ -1067,21 +1067,31 @@
 
   /* ------------------------------------------------------------------ entry modal */
 
-  function categoryOptions(selected, kind) {
+  function categoryParents(kind) {
     const cats = state.meta.categories.filter((c) => !c.archived);
     const parents = cats.filter((c) => !c.parent_id);
     const incomeParent = parents.find((p) => p.name === '收入');
-    const visible = kind === 'income'
+    return kind === 'income'
       ? (incomeParent ? [incomeParent] : [])
       : parents.filter((p) => p.name !== '收入');
-    return visible.map((p) => {
-      const kids = cats.filter((c) => c.parent_id === p.id);
-      if (!kids.length) return `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`;
-      // 导入账目可能只落在一级分类上，必须给一级分类一个明确选项，否则会误选第一个子类。
-      const parentOpt = `<option value="${p.id}" ${String(selected) === String(p.id) ? 'selected' : ''}>${esc(p.name)}（不细分）</option>`;
-      return parentOpt + `<optgroup label="${esc(p.name)}">${kids.map((k) =>
-        `<option value="${k.id}" ${String(selected) === String(k.id) ? 'selected' : ''}>${esc(p.name)} · ${esc(k.name)}</option>`).join('')}</optgroup>`;
-    }).join('');
+  }
+
+  function categoryParentOf(id) {
+    const c = state.meta.categories.find((x) => String(x.id) === String(id) && !x.archived);
+    return c ? (c.parent_id || c.id) : null;
+  }
+
+  function categoryParentOptions(selectedParent, kind) {
+    return categoryParents(kind).map((p) =>
+      `<option value="${p.id}" ${String(selectedParent) === String(p.id) ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+  }
+
+  function categoryChildOptions(parentId, selected) {
+    const kids = state.meta.categories.filter((c) => c.parent_id === Number(parentId) && !c.archived);
+    let out = `<option value="${parentId}" ${String(selected) === String(parentId) ? 'selected' : ''}>不细分</option>`;
+    out += kids.map((k) =>
+      `<option value="${k.id}" ${String(selected) === String(k.id) ? 'selected' : ''}>${esc(k.name)}</option>`).join('');
+    return out;
   }
 
   function catInfo(id) {
@@ -1219,14 +1229,58 @@
     return { get: () => value };
   }
 
+  const ENTRY_PREFS_KEY = 'hutuzhang.entryPrefs';
+
+  function readEntryPrefs() {
+    try {
+      const v = JSON.parse(localStorage.getItem(ENTRY_PREFS_KEY) || '{}');
+      return v && typeof v === 'object' ? v : {};
+    } catch (_) { return {}; }
+  }
+
+  function saveEntryPrefs(prefs) {
+    try { localStorage.setItem(ENTRY_PREFS_KEY, JSON.stringify(prefs)); } catch (_) {}
+  }
+
+  function preferredCategoryId(kind, pref) {
+    const id = pref && pref.category_id;
+    if (!id) return null;
+    const c = state.meta.categories.find((x) => x.id === Number(id) && !x.archived);
+    if (!c) return null;
+    const parent = c.parent_id ? state.meta.categories.find((x) => x.id === c.parent_id) : c;
+    const isIncome = !!parent && parent.name === '收入';
+    return isIncome === (kind === 'income') ? c.id : null;
+  }
+
+  function preferredAccountId(pref) {
+    const id = pref && pref.account_id;
+    if (!id) return null;
+    return state.meta.accounts.some((a) => a.id === Number(id) && !a.archived) ? Number(id) : null;
+  }
+
+  function rememberEntryPrefs(body) {
+    const prefs = readEntryPrefs();
+    prefs.last_kind = body.kind;
+    prefs[body.kind] = {
+      category_id: body.category_id,
+      account_id: body.account_id,
+      usage: body.usage,
+    };
+    saveEntryPrefs(prefs);
+  }
+
   function openEntryModal(entry) {
     const editing = !!entry;
     const now = new Date();
     const d = entry ? entry.occurred_at.slice(0, 10) : todayISO();
     const t = entry ? (entry.occurred_at.slice(11, 16) || '') : '';
-    const kind = entry ? entry.kind : 'expense';
-    const usage = entry ? entry.usage : 'personal';
-    const catId = entry ? entry.category_id : defaultCategoryId(kind);
+    const prefs = editing ? {} : readEntryPrefs();
+    const kind = entry ? entry.kind : (prefs.last_kind === 'income' ? 'income' : 'expense');
+    const pref = prefs[kind] || {};
+    const usage = entry ? entry.usage : (kind === 'expense' && pref.usage === 'work' ? 'work' : 'personal');
+    const catId = entry ? entry.category_id : (preferredCategoryId(kind, pref) || defaultCategoryId(kind));
+    const catParentId = categoryParentOf(catId) || (categoryParents(kind)[0] || {}).id;
+    const accountId = entry ? entry.account_id : preferredAccountId(pref);
 
     const m = openModal(`
       <div class="modal-head"><h3>${editing ? '编辑账目' : '记一笔'}</h3>
@@ -1249,12 +1303,17 @@
             <button data-v="income" class="${kind === 'income' ? 'active' : ''}">收入</button>
           </div>
         </div>
-        <div class="field"><label>分类</label><select id="f-cat">${categoryOptions(catId, kind)}</select></div>
+        <div class="field"><label>分类</label>
+          <div class="row-2 cat-2">
+            <select id="f-cat-parent" aria-label="一级分类">${categoryParentOptions(catParentId, kind)}</select>
+            <select id="f-cat-child" aria-label="二级分类">${categoryChildOptions(catParentId, catId)}</select>
+          </div>
+        </div>
         <div class="row-2">
           <div class="field"><label>账户</label><select id="f-acc">
             <option value="">未指定</option>
             ${state.meta.accounts.filter((a) => !a.archived).map((a) =>
-              `<option value="${a.id}" ${entry && entry.account_id === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
+              `<option value="${a.id}" ${Number(accountId) === a.id ? 'selected' : ''}>${esc(a.name)}</option>`).join('')}
           </select></div>
         </div>
         <div class="field" id="f-usage-wrap"><label>这笔钱算谁的</label>
@@ -1289,16 +1348,26 @@
     setTimeout(() => amount.focus(), 60);
 
     let curKind = kind, curUsage = usage;
-    let usageTouched = editing;
+    let usageTouched = editing || (kind === 'expense' && pref.usage);
     let dailyTouched = editing;
 
     m.querySelector('#f-kind').onclick = (ev) => {
       const b = ev.target.closest('button[data-v]');
       if (!b) return;
       curKind = b.dataset.v;
-      if (curKind === 'income') curUsage = 'personal';
+      if (curKind === 'income') {
+        curUsage = 'personal';
+        usageTouched = true;
+      } else {
+        const p = prefs.expense || {};
+        curUsage = p.usage === 'work' ? 'work' : 'personal';
+        usageTouched = !!p.usage;
+      }
       $$('#f-kind button').forEach((x) => x.classList.toggle('active', x === b));
-      m.querySelector('#f-cat').innerHTML = categoryOptions(defaultCategoryId(curKind), curKind);
+      const nextCat = preferredCategoryId(curKind, prefs[curKind] || {}) || defaultCategoryId(curKind);
+      const nextParent = categoryParentOf(nextCat) || (categoryParents(curKind)[0] || {}).id;
+      m.querySelector('#f-cat-parent').innerHTML = categoryParentOptions(nextParent, curKind);
+      m.querySelector('#f-cat-child').innerHTML = categoryChildOptions(nextParent, nextCat);
       applyCategoryDefault();
     };
     m.querySelector('#f-usage').onclick = (ev) => {
@@ -1310,11 +1379,20 @@
       m.querySelector('#f-rule-hint').style.display = 'none';
       syncFields();
     };
-    m.querySelector('#f-cat').addEventListener('change', applyCategoryDefault);
+    m.querySelector('#f-cat-parent').addEventListener('change', () => {
+      const pid = Number(m.querySelector('#f-cat-parent').value);
+      const child = m.querySelector('#f-cat-child');
+      const current = Number(child.value);
+      const kids = state.meta.categories.filter((c) => c.parent_id === pid && !c.archived);
+      const next = kids.some((k) => k.id === current) ? current : pid;
+      child.innerHTML = categoryChildOptions(pid, next);
+      applyCategoryDefault();
+    });
+    m.querySelector('#f-cat-child').addEventListener('change', applyCategoryDefault);
 
     function applyCategoryDefault() {
       if (curKind === 'income') { syncFields(); return; }
-      const sel = m.querySelector('#f-cat');
+      const sel = m.querySelector('#f-cat-child');
       const info = catInfo(Number(sel.value));
       const hint = m.querySelector('#f-rule-hint');
       const matched = !!info && workRuleMatch(info.parent, info.child, '');
@@ -1351,7 +1429,7 @@
     m.querySelector('#f-xdaily').addEventListener('change', () => { dailyTouched = true; });
     m.querySelector('#f-note').addEventListener('input', () => {
       if (editing) return;
-      const sel = m.querySelector('#f-cat');
+      const sel = m.querySelector('#f-cat-child');
       const info = catInfo(Number(sel.value));
       if (!info) return;
       const matched = workRuleMatch(info.parent, info.child, m.querySelector('#f-note').value);
@@ -1384,7 +1462,7 @@
         kind: curKind,
         occurred_at: datePick.get() + (time ? ' ' + time : ''),
         amount: Math.round(val * 100) / 100,
-        category_id: Number(m.querySelector('#f-cat').value) || null,
+        category_id: Number(m.querySelector('#f-cat-child').value) || null,
         account_id: Number(m.querySelector('#f-acc').value) || null,
         note: m.querySelector('#f-note').value.trim(),
         usage: curKind === 'income' ? 'personal' : curUsage,
@@ -1396,6 +1474,7 @@
       try {
         if (editing) await patch('/entries/' + entry.id, body);
         else await post('/entries', body);
+        rememberEntryPrefs(body);
         closeModal();
         toast(editing ? '已保存' : '已记下');
         await reloadAll();
@@ -1461,6 +1540,7 @@
     const dInc = pct(d.summary.income_cents, d.prev.income_cents);
     const meals = d.meals || {};
     const mealItems = meals.items || [];
+    const milkTea = meals.milk_tea || { count: 0, amount_cents: 0, avg_cents: 0 };
     const showMeals = meals.total_cents > 0 && (st.scope === 'personal' || st.scope === 'all');
 
     el.innerHTML = `
@@ -1536,6 +1616,11 @@
             <div class="meal-price">${m.count ? money(m.avg_cents) : '—'}</div>
             <div class="meal-hint">单次均价</div>
           </div>`).join('')}
+          ${milkTea.count ? `<div class="meal-item" ${milkTea.category_id ? `data-meal-cat="${milkTea.category_id}"` : ''}>
+            <div class="meal-name">奶茶 <span>${milkTea.count} 次</span></div>
+            <div class="meal-price">${money(milkTea.avg_cents)}</div>
+            <div class="meal-hint">另算 · 不计入三餐均价</div>
+          </div>` : ''}
           <div class="meal-item meal-day">
             <div class="meal-name">有记录日均</div>
             <div class="meal-price">${meals.days ? money(meals.day_avg_cents) : '—'}</div>
@@ -1545,6 +1630,7 @@
         <div class="meal-note">
           单次均价 = 该类总支出 ÷ 记录次数；有记录日均 = 食品餐饮总支出 ÷ 有餐饮记录的天数。
           客户包餐日没有餐饮记录，不会拉低均价；只记一餐的日子会影响日均，但不影响单次均价。
+          ${milkTea.count ? `奶茶 ${money(milkTea.amount_cents)} 已单独统计，不计入三餐均价。` : ''}
           ${meals.other && meals.other.amount_cents ? `含未细分 ${money(meals.other.amount_cents)}，已计入总支出和日均。` : ''}
         </div>
       </div>` : ''}

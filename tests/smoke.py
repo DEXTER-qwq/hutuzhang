@@ -253,12 +253,16 @@ def main():
         req("POST", "/api/entries", {"occurred_at": "2026-08-10 12:00", "amount": 50,
                                      "category_id": meal_cat("午餐"), "note": "客户包餐",
                                      "usage": "work"})
+        req("POST", "/api/entries", {"occurred_at": "2026-08-09 15:00", "amount": 15,
+                                     "category_id": meal_cat("奶茶"), "note": "奶茶测试"})
         code, ms = req("GET", "/api/stats?period=month&key=2026-08&scope=personal")
         m = ms["meals"]
-        check(m["total_cents"] == 10000 and m["count"] == 4 and m["days"] == 2,
+        check(m["total_cents"] == 11500 and m["count"] == 5 and m["days"] == 2,
               "meal totals exclude work", m)
-        check(m["day_avg_cents"] == 5000 and m["three_meal_cents"] == 7000,
+        check(m["day_avg_cents"] == 5750 and m["three_meal_cents"] == 7000,
               "meal day average", m)
+        check(m["milk_tea"]["amount_cents"] == 1500 and m["milk_tea"]["count"] == 1,
+              "milk tea separate", m["milk_tea"])
         by_name = {x["name"]: x for x in m["items"]}
         check(by_name["早餐"]["avg_cents"] == 1000 and by_name["早餐"]["count"] == 1,
               "breakfast average")
@@ -450,16 +454,34 @@ def main():
              "交易成功", "", "", ""],
             ["2026/06/07 12:00", "充值缴费", "合肥水务", "", "水费", "支出", "9.45", "账户余额",
              "交易成功", "", "", ""],
+            ["2026/06/08 09:59", "餐饮美食", "A餐厅", "", "套餐", "支出", "8.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/09 10:00", "餐饮美食", "B餐厅", "", "套餐", "支出", "20.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/10 15:59", "餐饮美食", "C餐厅", "", "套餐", "支出", "25.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/11 16:00", "餐饮美食", "D餐厅", "", "套餐", "支出", "30.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/12 01:00", "餐饮美食", "E餐厅", "", "烧烤", "支出", "35.00", "账户余额",
+             "交易成功", "", "", ""],
+            ["2026/06/13 15:00", "餐饮美食", "喜茶", "", "奶茶", "支出", "18.00", "账户余额",
+             "交易成功", "", "", ""],
         ]
         code, _ = req("POST", "/api/import?filename=map.csv", raw=alipay_bytes(map_rows))
         for q, expect in [
             ("星巴克", "食品餐饮 · 饮料酒水"),
-            ("美团外卖", "食品餐饮 · 外卖"),
+            ("美团外卖", "食品餐饮 · 午餐"),
             ("合肥地铁", "出行交通 · 公共交通"),
             ("某数码店", "购物消费 · 手机数码"),
             ("优衣库", "购物消费 · 服饰鞋包"),
             ("汉庭酒店", "休闲娱乐 · 旅游度假"),
             ("合肥水务", "居家生活 · 水电燃气"),
+            ("A餐厅", "食品餐饮 · 早餐"),
+            ("B餐厅", "食品餐饮 · 午餐"),
+            ("C餐厅", "食品餐饮 · 午餐"),
+            ("D餐厅", "食品餐饮 · 晚餐"),
+            ("E餐厅", "食品餐饮 · 晚餐"),
+            ("喜茶", "食品餐饮 · 奶茶"),
         ]:
             code, found = req("GET", "/api/entries?q=" + q)
             got = found["items"][0]["category_label"] if found["items"] else None
@@ -493,7 +515,7 @@ def main():
         check(r["imported"] == 0 and r["skipped"] == 4, "wechat re-import dedupes", r)
 
         code, lst = req("GET", "/api/entries?q=美团&date_from=2026-10-01&date_to=2026-10-01")
-        check(lst["items"][0]["category_label"] == "食品餐饮 · 外卖", "wechat food category",
+        check(lst["items"][0]["category_label"] == "食品餐饮 · 午餐", "wechat food category",
               lst["items"][0]["category_label"] if lst["items"] else None)
         code, lst = req("GET", "/api/entries?q=滴滴&date_from=2026-10-02&date_to=2026-10-02")
         check(lst["items"][0]["usage"] == "work", "wechat taxi marked work")

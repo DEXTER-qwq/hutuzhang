@@ -193,7 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_import_refunds_entry ON import_refunds(entry_id);
 
 # (parent, [(child, icon), ...], color)
 SEED_CATEGORIES = [
-    ("食品餐饮", ["早餐", "午餐", "晚餐", "饮料酒水", "休闲零食", "生鲜食品", "外卖"], "#F97316", "🍜"),
+    ("食品餐饮", ["早餐", "午餐", "晚餐", "饮料酒水", "奶茶", "休闲零食", "生鲜食品", "外卖"], "#F97316", "🍜"),
     ("出行交通", ["公共交通", "打车", "火车", "飞机", "加油停车"], "#3B82F6", "🚇"),
     ("购物消费", ["手机数码", "虚拟充值", "日用百货", "服饰鞋包", "美妆护肤"], "#EC4899", "🛍️"),
     ("居家生活", ["房租", "水电燃气", "物业", "家具家电", "家政维修"], "#10B981", "🏠"),
@@ -288,6 +288,16 @@ def init_db() -> None:
             con.executemany(
                 "INSERT INTO accounts(name, kind, type, color, sort) VALUES (?, ?, ?, ?, ?)",
                 [(n, k, t, c, i) for i, (n, k, t, c) in enumerate(SEED_ACCOUNTS)],
+            )
+        food = con.execute(
+            "SELECT id, color FROM categories WHERE parent_id IS NULL AND name='食品餐饮'"
+        ).fetchone()
+        if food and not con.execute(
+            "SELECT 1 FROM categories WHERE parent_id=? AND name='奶茶'", (food["id"],)
+        ).fetchone():
+            con.execute(
+                "INSERT INTO categories(parent_id, name, icon, color, sort) VALUES (?, '奶茶', '', ?, 99)",
+                (food["id"], food["color"]),
             )
         con.execute("INSERT OR IGNORE INTO settings(key, value) VALUES ('currency', 'CNY')")
         con.commit()

@@ -297,7 +297,7 @@ body.view-import .search-wrap, body.view-settings .search-wrap { display: none; 
 .stats-hero .delta { font-size: 10px; opacity: .66; }
 
 .meal-grid {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;
   padding: 0 18px 12px;
 }
 .meal-item {
